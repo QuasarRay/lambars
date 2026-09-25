@@ -4,6 +4,43 @@
 
 /// Canonical specifications currently discharged semantically by Kani.
 pub const KANI_SEMANTIC_COVERAGE: &[&str] = &[
+    "monoid_option_sum_i64_left_identity_law_holds",
+    "monoid_option_sum_i64_right_identity_law_holds",
+    "monoid_option_sum_i64_combine_all_empty_returns_identity",
+    "alternative_option_left_identity_law_holds",
+    "alternative_option_right_identity_law_holds",
+    "alternative_option_associativity_law_holds",
+    "alternative_option_left_distributivity_over_fmap_holds",
+    "alternative_option_guard_true_produces_success_unit",
+    "alternative_option_guard_false_produces_empty",
+    "bifunctor_either_identity_law_holds",
+    "bifunctor_either_composition_law_holds",
+    "bifunctor_either_bimap_matches_map_left_then_map_right",
+    "bifunctor_either_first_changes_only_first_type_parameter",
+    "bifunctor_either_second_changes_only_second_type_parameter",
+    "bifunctor_result_identity_law_holds",
+    "bifunctor_result_composition_law_holds",
+    "bifunctor_result_bimap_matches_map_left_then_map_right",
+    "bifunctor_result_first_changes_only_first_type_parameter",
+    "bifunctor_result_second_changes_only_second_type_parameter",
+    "bifunctor_tuple_identity_law_holds",
+    "bifunctor_tuple_composition_law_holds",
+    "bifunctor_tuple_bimap_matches_map_left_then_map_right",
+    "bifunctor_tuple_first_changes_only_first_type_parameter",
+    "bifunctor_tuple_second_changes_only_second_type_parameter",
+    "option_type_constructor_with_type_replaces_only_inner_type",
+    "result_type_constructor_with_type_preserves_error_type_and_replaces_success_type",
+    "vec_type_constructor_with_type_replaces_only_element_type",
+    "box_type_constructor_with_type_replaces_only_inner_type",
+    "identity_type_constructor_with_type_replaces_only_inner_type",
+    "identity_new_into_inner_as_inner_and_as_inner_mut_are_consistent",
+    "bounded_integer_min_value_matches_primitive_min",
+    "bounded_integer_max_value_matches_primitive_max",
+    "bounded_float_min_value_is_negative_infinity",
+    "bounded_float_max_value_is_positive_infinity",
+    "bounded_char_min_value_is_null_character",
+    "bounded_char_max_value_matches_char_max",
+    "bounded_bool_min_value_is_false_and_max_value_is_true",
     "either_is_left_on_left_variant_has_documented_left_behavior",
     "either_is_left_on_right_variant_has_documented_right_behavior",
     "either_is_right_on_left_variant_has_documented_left_behavior",
@@ -73,6 +110,8 @@ mod compose;
 mod either;
 #[cfg(kani)]
 mod metaverification;
+#[cfg(kani)]
+mod typeclass_core;
 
 #[cfg(test)]
 mod tests {
