@@ -10,6 +10,10 @@ on:
       - "verification/tools/**"
       - ".github/workflows/kani-verification.yml"
 
+  push:
+    branches: [main]
+  workflow_dispatch:
+
 jobs:
   kani:
     runs-on: ubuntu-latest

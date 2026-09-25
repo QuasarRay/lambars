@@ -26,16 +26,16 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-003 | remediation in PR | #12 |
 | SC-004 | remediation in PR | #13 |
 | SC-005 | remediation in PR | #14 |
-| SC-006 | open | planned concurrency-model layer |
+| SC-006 | remediation in branch | safety/08-ci-assurance: real Loom protocol models + Kani/Verus transition invariants |
 | SC-007 | remediation in branch | safety/06-release-assurance |
 | SC-008 | open | requires GitHub branch/ruleset configuration |
-| SC-009 | open | planned CI/MSRV layer |
+| SC-009 | remediation in branch | safety/08-ci-assurance: exact Rust 1.92.0 gate |
 | SC-010 | open | requires full semantic coverage/refinement expansion |
 | SC-011 | open | planned release-gate layer |
 | SC-012 | open | planned supply-chain pinning layer |
-| SC-013 | open | planned security-test layer |
-| SC-014 | open | planned portability matrix |
-| SC-015 | open | planned coverage threshold |
+| SC-013 | partial remediation | safety/08-ci-assurance: Miri + cargo-audit + cargo-deny; sanitizer/fuzz/CodeQL still open |
+| SC-014 | partial remediation | safety/08-ci-assurance: Linux/macOS/Windows host matrix; architecture matrix still open |
+| SC-015 | remediation in branch | safety/08-ci-assurance: 80% line floor + gating Codecov upload |
 | SC-016 | remediation in branch | safety/06-release-assurance |
 | SC-017 | remediation in branch | safety/06-release-assurance |
 | SC-018 | remediation in branch | safety/06-release-assurance |
@@ -51,15 +51,15 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-028 | open | planned bounded ConcurrentLazy API layer |
 | SC-029 | open | planned trusted-hasher type boundary |
 | SC-030 | remediation in PR | #11 |
-| SC-031 | partial | Kani + Verus workflows exist in stack; release/status gating still open |
+| SC-031 | partial remediation | safety/08-ci-assurance: PR/main/manual formal workflows; required-status policy still open |
 | SC-032 | open | direct executable refinement expansion required |
 | SC-033 | open | Kani coverage expansion required |
-| SC-034 | open | real Loom/model interleaving layer required |
-| SC-035 | open | unsafe boundary policy/gating layer required |
-| SC-036 | open | dependency policy layer required |
+| SC-034 | remediation in branch | safety/08-ci-assurance: bounded Loom interleavings + Kani/Verus state invariants |
+| SC-035 | partial remediation | safety/08-ci-assurance: CI-enforced unsafe boundary; root forbid/separate unsafe crate still open |
+| SC-036 | remediation in branch | safety/08-ci-assurance: RustSec + cargo-deny advisory/license/source policy |
 | SC-037 | open | benchmark/reproducibility pinning layer required |
 | SC-038 | open | SBOM/provenance/source-to-package equivalence layer required |
-| SC-039 | open | workspace verification aggregation layer required |
+| SC-039 | remediation in branch | safety/08-ci-assurance: excluded verifier crates are explicit CI smoke targets |
 | SC-040 | partial | this matrix exists; release must gate on machine-readable completion |
 
 ## Concurrency / parallel / async rule

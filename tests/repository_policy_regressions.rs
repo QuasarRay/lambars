@@ -11,6 +11,11 @@ const TOOLCHAIN: &str = include_str!("../rust-toolchain.toml");
 const ASYNC_IO: &str = include_str!("../src/effect/async_io/mod.rs");
 const DERIVED_LENSES_SOURCE: &str = include_str!("../lambars-derive/src/lenses.rs");
 const DERIVED_PRISMS_SOURCE: &str = include_str!("../lambars-derive/src/prisms.rs");
+const CI_WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
+const KANI_WORKFLOW: &str = include_str!("../.github/workflows/kani-verification.yml");
+const VERUS_WORKFLOW: &str = include_str!("../.github/workflows/verus-verification.yml");
+const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
+const DENY_POLICY: &str = include_str!("../deny.toml");
 
 #[test]
 fn sc007_security_policy_describes_the_real_unsafe_boundary() {
@@ -60,4 +65,49 @@ fn sc024_generated_docs_do_not_emit_literal_quote_placeholders() {
     assert!(!DERIVED_PRISMS_SOURCE.contains("`#variant_name`"));
     assert!(DERIVED_LENSES_SOURCE.contains("field_doc"));
     assert!(DERIVED_PRISMS_SOURCE.contains("variant_doc"));
+}
+
+
+#[test]
+fn sc006_sc034_concurrency_suite_uses_real_loom_models() {
+    assert!(LOOM_SUITE.contains("loom::model"));
+    assert!(LOOM_SUITE.contains("Ordering::Acquire"));
+    assert!(LOOM_SUITE.contains("Ordering::Release"));
+    assert!(CI_WORKFLOW.contains("Loom concurrency model"));
+}
+
+#[test]
+fn sc009_msrv_job_runs_exact_declared_version() {
+    assert!(CI_WORKFLOW.contains("rustc 1.92.0"));
+    assert!(CI_WORKFLOW.contains("rust-version = \"1.92.0\""));
+    assert!(!CI_WORKFLOW.contains("toolchain: nightly-2025-12-15\n\n      - name: Check MSRV"));
+}
+
+#[test]
+fn sc015_coverage_is_a_gating_threshold() {
+    assert!(CI_WORKFLOW.contains("--fail-under-lines 80"));
+    assert!(CI_WORKFLOW.contains("fail_ci_if_error: true"));
+}
+
+#[test]
+fn sc031_formal_workflows_run_on_main_pushes() {
+    assert!(KANI_WORKFLOW.contains("push:"));
+    assert!(KANI_WORKFLOW.contains("branches: [main]"));
+    assert!(VERUS_WORKFLOW.contains("push:"));
+    assert!(VERUS_WORKFLOW.contains("branches: [main]"));
+}
+
+#[test]
+fn sc036_dependency_policy_enforces_advisories_licenses_and_sources() {
+    assert!(CI_WORKFLOW.contains("cargo audit --deny warnings"));
+    assert!(CI_WORKFLOW.contains("cargo deny check"));
+    assert!(DENY_POLICY.contains("unknown-registry = \"deny\""));
+    assert!(DENY_POLICY.contains("unknown-git = \"deny\""));
+    assert!(DENY_POLICY.contains("yanked = \"deny\""));
+}
+
+#[test]
+fn sc039_excluded_verifier_crates_are_explicitly_smoke_checked() {
+    assert!(CI_WORKFLOW.contains("verification/kani/Cargo.toml"));
+    assert!(CI_WORKFLOW.contains("working-directory: verification/verus"));
 }

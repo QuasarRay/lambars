@@ -7,6 +7,8 @@ on:
       - "lambars-derive/**"
       - "verification/verus/**"
       - ".github/workflows/verus-verification.yml"
+  push:
+    branches: [main]
   workflow_dispatch:
 
 env:
