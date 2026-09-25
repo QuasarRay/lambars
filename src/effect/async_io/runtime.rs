@@ -76,7 +76,7 @@ impl fmt::Display for RuntimeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InitializationFailed(kind) => {
-                write!(formatter, "failed to initialize global Tokio runtime: {kind}")
+                write!(formatter, "failed to initialize global Tokio runtime: {kind:?}")
             }
         }
     }
@@ -528,6 +528,14 @@ mod tests {
     }
 
     #[rstest]
+    fn try_run_blocking_catches_future_panic() {
+        let result = try_run_blocking(async {
+            panic!("intentional test panic");
+        });
+        assert_eq!(result, Err(BlockingError::ExecutionPanicked));
+    }
+
+    #[rstest]
     fn try_run_blocking_multiple_calls() {
         let results: Vec<Result<i32, BlockingError>> = (0..10)
             .map(|i| try_run_blocking(async move { i }))
@@ -575,6 +583,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, Ok(42));
+    }
+
+    #[rstest]
+    #[tokio::test(flavor = "current_thread")]
+    async fn run_blocking_returns_current_thread_error() {
+        let result = run_blocking(async { 42 });
+        assert_eq!(result, Err(BlockingError::CurrentThreadRuntime));
     }
 
     #[rstest]
