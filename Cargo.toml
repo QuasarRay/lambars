@@ -1,6 +1,6 @@
 [workspace]
 members = [".", "lambars-derive", "lambars-verification", "lambars-verify-macros", "xtask"]
-exclude = ["benches/api", "verification/kani", "verification/verus"]
+exclude = ["benches/api", "benches/iai", "verification/kani", "verification/verus"]
 resolver = "3"
 
 [package]
@@ -37,7 +37,7 @@ parking_lot = { version = "0.12", optional = true }
 arrayvec = { version = "0.7", optional = true }
 
 
-paste = "1.0"
+paste = { package = "pastey", version = "=0.2.3" }
 static_assertions = "1.1"
 
 [dev-dependencies]
@@ -46,7 +46,6 @@ proptest = "1.5"
 lambars-derive = { path = "lambars-derive" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync", "macros", "test-util"] }
 criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
-iai-callgrind = "0.16"
 serde_json = "1.0"
 trybuild = "1.0"
 loom = "0.7"
@@ -151,30 +150,9 @@ name = "async_io_runtime_bench"
 harness = false
 required-features = ["async"]
 
-# Iai-Callgrind benchmarks
-[[bench]]
-name = "persistent_vector_iai"
-harness = false
-path = "benches/iai/persistent_vector_iai.rs"
-
-[[bench]]
-name = "effect_iai"
-harness = false
-path = "benches/iai/effect_iai.rs"
-
-[[bench]]
-name = "scenario_iai"
-harness = false
-path = "benches/iai/scenario_iai.rs"
-
 [[bench]]
 name = "ordered_unique_set_bench"
 harness = false
-
-[[bench]]
-name = "ordered_unique_set_iai"
-harness = false
-path = "benches/iai/ordered_unique_set_iai.rs"
 
 # Integration tests with feature requirements
 [[test]]
