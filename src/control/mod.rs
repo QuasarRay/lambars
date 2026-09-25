@@ -75,7 +75,9 @@ mod freer;
 mod lazy;
 mod trampoline;
 
-pub use concurrent_lazy::{ConcurrentLazy, ConcurrentLazyPoisonedError};
+pub use concurrent_lazy::{
+    ConcurrentLazy, ConcurrentLazyPoisonedError, concurrent_lazy_reentry_matches,
+};
 pub use continuation::Continuation;
 pub use either::Either;
 pub use freer::{Freer, InterpretError};
