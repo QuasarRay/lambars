@@ -2,9 +2,7 @@ use vstd::prelude::*;
 
 verus! {
 
-pub open spec fn identity(value: int) -> int {
-    value
-}
+pub open spec fn identity(value: int) -> int { value }
 
 pub proof fn identity_is_identity(value: int)
     ensures identity(value) == value
@@ -39,12 +37,10 @@ pub proof fn update_at_preserves_other_indices(s: Seq<int>, i: int, j: int, v: i
 }
 
 pub proof fn append_preserves_length_sum(left: Seq<int>, right: Seq<int>)
-    ensures
-        (left + right).len() == left.len() + right.len(),
+    ensures (left + right).len() == left.len() + right.len()
 {
 }
 
-/// SC-002 model of the executable instance-identity predicate.
 pub open spec fn concurrent_lazy_reentry_matches_model(active: int, candidate: int) -> bool {
     active == candidate
 }
@@ -57,6 +53,19 @@ pub proof fn sc002_distinct_instances_are_not_reentry(active: int, candidate: in
 
 pub proof fn sc002_same_instance_is_reentry(identity: int)
     ensures concurrent_lazy_reentry_matches_model(identity, identity)
+{
+}
+
+/// SC-030 model of checked generation-token advancement.
+pub open spec fn generation_successor_model(current: int) -> int {
+    current + 1
+}
+
+pub proof fn sc030_generation_successor_cannot_be_shared_zero(current: int)
+    requires current >= 1
+    ensures
+        generation_successor_model(current) > current,
+        generation_successor_model(current) != 0,
 {
 }
 
