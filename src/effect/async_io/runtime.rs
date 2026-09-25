@@ -328,8 +328,8 @@ mod tests {
 
     #[rstest]
     fn global_returns_same_instance() {
-        let runtime1 = global();
-        let runtime2 = global();
+        let runtime1 = global().unwrap();
+        let runtime2 = global().unwrap();
         assert!(ptr::eq(runtime1, runtime2));
     }
 
@@ -340,13 +340,13 @@ mod tests {
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 let counter = counter.clone();
-                global().spawn(async move {
+                global().unwrap().spawn(async move {
                     counter.fetch_add(1, Ordering::SeqCst);
                 })
             })
             .collect();
 
-        global().block_on(async {
+        global().unwrap().block_on(async {
             for handle in handles {
                 handle.await.unwrap();
             }
@@ -385,7 +385,7 @@ mod tests {
         // The runtime ID should NOT be the memory address of the global runtime.
         // This test ensures we're not leaking ASLR information.
         let id = runtime_id();
-        let pointer_value = std::ptr::from_ref::<Runtime>(global()) as u64;
+        let pointer_value = std::ptr::from_ref::<Runtime>(global().unwrap()) as u64;
 
         // The ID should NOT equal the pointer address.
         // This is the primary security requirement - we don't want to leak
@@ -409,7 +409,7 @@ mod tests {
 
     #[rstest]
     fn handle_works_from_outside_runtime() {
-        let obtained_handle = handle();
+        let obtained_handle = handle().unwrap();
         let result = obtained_handle.block_on(async { 42 });
         assert_eq!(result, 42);
     }
@@ -417,7 +417,7 @@ mod tests {
     #[rstest]
     #[tokio::test]
     async fn handle_works_from_inside_runtime() {
-        let obtained_handle = handle();
+        let obtained_handle = handle().unwrap();
         let result = obtained_handle.spawn(async { 42 }).await.unwrap();
         assert_eq!(result, 42);
     }
@@ -425,8 +425,8 @@ mod tests {
     #[rstest]
     fn handle_caching_works() {
         // Call handle multiple times from the same thread
-        let handle1 = handle();
-        let handle2 = handle();
+        let handle1 = handle().unwrap();
+        let handle2 = handle().unwrap();
 
         // Both should work
         let result1 = handle1.block_on(async { 1 });
@@ -443,9 +443,9 @@ mod tests {
             .map(|i| {
                 thread::spawn(move || {
                     // First call caches the handle
-                    let obtained_handle = handle();
+                    let obtained_handle = handle().unwrap();
                     // Second call should return the cached handle
-                    let _ = handle();
+                    let _ = handle().unwrap();
                     obtained_handle.block_on(async move { i })
                 })
             })
@@ -576,7 +576,7 @@ mod tests {
     #[rstest]
     fn run_blocking_from_outside_runtime() {
         let result = run_blocking(async { 42 });
-        assert_eq!(result, 42);
+        assert_eq!(result, Ok(42));
     }
 
     #[rstest]
@@ -586,16 +586,18 @@ mod tests {
             let value2 = async { 20 }.await;
             value1 + value2
         });
-        assert_eq!(result, 30);
+        assert_eq!(result, Ok(30));
     }
 
     #[rstest]
     fn run_blocking_preserves_result_types() {
-        let ok_result: Result<i32, &str> = run_blocking(async { Ok(42) });
-        assert_eq!(ok_result, Ok(42));
+        let ok_result: Result<Result<i32, &str>, BlockingError> =
+            run_blocking(async { Ok(42) });
+        assert_eq!(ok_result, Ok(Ok(42)));
 
-        let err_result: Result<i32, &str> = run_blocking(async { Err("error") });
-        assert_eq!(err_result, Err("error"));
+        let err_result: Result<Result<i32, &str>, BlockingError> =
+            run_blocking(async { Err("error") });
+        assert_eq!(err_result, Ok(Err("error")));
     }
 
     #[rstest]
@@ -604,14 +606,25 @@ mod tests {
         let result = tokio::task::spawn_blocking(|| run_blocking(async { 42 }))
             .await
             .unwrap();
-        assert_eq!(result, 42);
+        assert_eq!(result, Ok(42));
+    }
+
+    #[rstest]
+    fn run_blocking_converts_future_panic_to_error() {
+        let result = run_blocking(async {
+            panic!("test panic");
+            #[allow(unreachable_code)]
+            42
+        });
+        assert_eq!(result, Err(BlockingError::ExecutionPanicked));
     }
 
     #[rstest]
     fn run_blocking_multiple_calls() {
-        let results: Vec<i32> = (0..10).map(|i| run_blocking(async move { i })).collect();
+        let results: Vec<Result<i32, BlockingError>> =
+            (0..10).map(|i| run_blocking(async move { i })).collect();
 
-        let expected: Vec<i32> = (0..10).collect();
+        let expected: Vec<Result<i32, BlockingError>> = (0..10).map(Ok).collect();
         assert_eq!(results, expected);
     }
 
@@ -621,15 +634,15 @@ mod tests {
 
     #[rstest]
     fn global_accessible_from_multiple_threads() {
-        let results: Vec<i32> = (0..4)
+        let results: Vec<Result<i32, BlockingError>> = (0..4)
             .map(|i| thread::spawn(move || run_blocking(async move { i })))
             .map(|h| h.join().unwrap())
             .collect();
 
-        // All threads should have executed successfully
+        // All threads should have executed successfully.
         assert_eq!(results.len(), 4);
         for (i, result) in results.into_iter().enumerate() {
-            assert_eq!(result, i32::try_from(i).unwrap());
+            assert_eq!(result, Ok(i32::try_from(i).unwrap()));
         }
     }
 }
