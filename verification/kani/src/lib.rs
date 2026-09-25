@@ -1,6 +1,9 @@
 #![deny(unsafe_code)]
 #![allow(dead_code)]
 
+#[cfg(any(test, kani))]
+mod boundary_families;
+
 use lambars::control::Either;
 use lambars::typeclass::{Functor, Semigroup};
 
