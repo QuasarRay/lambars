@@ -149,3 +149,12 @@ jobs:
       - name: Compile Verus crate with its pinned toolchain
         working-directory: verification/verus
         run: cargo check
+
+
+  supply-chain-policy:
+    name: Immutable CI supply chain
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Reject mutable workflow inputs
+        run: python verification/tools/check_supply_chain.py
