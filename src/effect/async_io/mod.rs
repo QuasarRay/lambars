@@ -1841,10 +1841,9 @@ impl<A: Send + 'static> AsyncIO<A> {
     ///
     /// # Warning
     ///
-    /// This method uses [`runtime::run_blocking`] internally, which cannot
-    /// be called from within a current-thread runtime (e.g., `#[tokio::test]`
-    /// with `flavor = "current_thread"`). Calling this from a current-thread
-    /// runtime will panic.
+    /// This method uses [`runtime::run_blocking`] internally. Runtime-context,
+    /// initialization, and caught-panic failures are returned inside the resulting
+    /// `IO<Result<_, BlockingError>>`; they do not abort the caller.
     ///
     /// # Examples
     ///
@@ -1855,7 +1854,7 @@ impl<A: Send + 'static> AsyncIO<A> {
     ///     let async_io = AsyncIO::pure(42);
     ///     let io = async_io.to_sync();
     ///     let result = io.run_unsafe();
-    ///     assert_eq!(result, 42);
+    ///     assert_eq!(result, Ok(42));
     /// }
     /// ```
     ///
@@ -1868,6 +1867,7 @@ impl<A: Send + 'static> AsyncIO<A> {
     /// // Alternative 1: Use runtime::run_blocking
     /// let async_io = AsyncIO::pure(42);
     /// let result = runtime::run_blocking(async_io);
+    /// assert_eq!(result, Ok(42));
     ///
     /// // Alternative 2: Use await in async context
     /// async fn example() {
@@ -1876,16 +1876,17 @@ impl<A: Send + 'static> AsyncIO<A> {
     /// }
     /// ```
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if called from within a current-thread runtime.
+    /// The returned `IO` evaluates to `Err(BlockingError)` if synchronous
+    /// bridging is unavailable or execution panics.
     #[must_use]
     #[deprecated(
         since = "0.1.0",
         note = "Use `runtime::run_blocking` or await in async context"
     )]
     #[allow(deprecated)]
-    pub fn to_sync(self) -> super::IO<A> {
+    pub fn to_sync(self) -> super::IO<Result<A, runtime::BlockingError>> {
         super::IO::new(move || runtime::run_blocking(self))
     }
 }

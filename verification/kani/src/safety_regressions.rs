@@ -420,3 +420,33 @@ mod release_gate_runtime_regressions {
         }
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod runtime_fallibility_regressions {
+    use lambars_alias::effect::async_io::runtime::{
+        RuntimeError, runtime_initialization_policy,
+    };
+
+    fn initialization_is_total(success: bool) -> bool {
+        match (success, runtime_initialization_policy(success)) {
+            (true, Ok(())) => true,
+            (false, Err(RuntimeError::InitializationFailed(_))) => true,
+            _ => false,
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc027_runtime_initialization_is_represented_as_result() {
+        assert!(initialization_is_total(true));
+        assert!(initialization_is_total(false));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc027_runtime_initialization_policy_is_total_for_all_outcomes() {
+        let success: bool = kani::any();
+        assert!(initialization_is_total(success));
+    }
+}

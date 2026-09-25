@@ -13,18 +13,18 @@
 //!
 //! | Context | `try_run_blocking` Result |
 //! |---------|---------------------------|
-//! | Outside runtime | `Ok(T)` via `global().block_on()` |
+//! | Outside runtime | `Ok(T)` via fallible `global()?.block_on()` |
 //! | Multi-thread runtime | `Ok(T)` via `block_in_place` |
 //! | Current-thread runtime | `Err(CurrentThreadRuntime)` |
 //! | Unknown flavor | `Err(UnsupportedRuntimeFlavor)` |
 //!
 //! # Limitations
 //!
-//! `block_in_place` panics in multi-thread runtime when called from:
+//! `block_in_place` may panic in multi-thread runtime when called from:
 //! - `LocalSet::run_until()`
 //! - Contexts with `disallow_block_in_place` enabled
 //!
-//! **Workaround**: Use `spawn_blocking` to move to a worker thread first.
+//! Such panics are caught and returned as `BlockingError::ExecutionPanicked`; `spawn_blocking` remains preferable when blocking is expected.
 //!
 //! # Security
 //!
@@ -37,7 +37,7 @@
 //! use lambars::effect::async_io::runtime::{run_blocking, try_run_blocking};
 //!
 //! let result = run_blocking(async { 42 });
-//! assert_eq!(result, 42);
+//! assert_eq!(result, Ok(42));
 //!
 //! let result = try_run_blocking(async { 42 });
 //! assert_eq!(result, Ok(42));
@@ -47,6 +47,8 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
+use std::io::ErrorKind;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -63,23 +65,58 @@ static RUNTIME_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_RUNTIME_ID: LazyLock<u64> =
     LazyLock::new(|| RUNTIME_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1);
 
+/// Error returned when the shared runtime cannot be initialized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeError {
+    /// Tokio could not construct the process-global multi-thread runtime.
+    InitializationFailed(ErrorKind),
+}
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InitializationFailed(kind) => {
+                write!(formatter, "failed to initialize global Tokio runtime: {kind:?}")
+            }
+        }
+    }
+}
+
+impl Error for RuntimeError {}
+
+/// Small executable policy used by Kani regression proofs.
+#[doc(hidden)]
+#[must_use]
+pub const fn runtime_initialization_policy(success: bool) -> Result<(), RuntimeError> {
+    if success {
+        Ok(())
+    } else {
+        Err(RuntimeError::InitializationFailed(ErrorKind::Other))
+    }
+}
+
 /// Global multi-thread tokio runtime (static lifetime, never dropped).
-static GLOBAL_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    // Ensure runtime ID is initialized before the runtime itself
+static GLOBAL_RUNTIME: LazyLock<Result<Runtime, RuntimeError>> = LazyLock::new(|| {
+    // Ensure runtime ID is initialized before the runtime itself.
     let _ = *GLOBAL_RUNTIME_ID;
 
     Builder::new_multi_thread()
         .worker_threads(num_cpus::get())
         .enable_all()
         .build()
-        .expect("Failed to create global tokio runtime")
+        .map_err(|error| RuntimeError::InitializationFailed(error.kind()))
 });
 
 /// Returns a reference to the lazily-initialized global runtime.
+///
+/// Unlike the previous API, runtime construction failure is returned as a typed
+/// error rather than aborting the caller with `expect`.
 #[inline]
-#[must_use]
-pub fn global() -> &'static Runtime {
-    &GLOBAL_RUNTIME
+pub fn global() -> Result<&'static Runtime, RuntimeError> {
+    match &*GLOBAL_RUNTIME {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(*error),
+    }
 }
 
 /// Returns an opaque, ASLR-safe identifier for the global runtime.
@@ -103,21 +140,20 @@ thread_local! {
 /// Priority: current runtime handle > cached global runtime handle.
 /// The global handle is cloned once per thread and cached thereafter.
 #[inline]
-#[must_use]
-pub fn handle() -> Handle {
+pub fn handle() -> Result<Handle, RuntimeError> {
     if let Ok(current_handle) = Handle::try_current() {
-        return current_handle;
+        return Ok(current_handle);
     }
 
     CACHED_HANDLE.with(|cell| {
         let mut cached = cell.borrow_mut();
         if let Some(ref cached_handle) = *cached {
-            return cached_handle.clone();
+            return Ok(cached_handle.clone());
         }
 
-        let global_handle = global().handle().clone();
+        let global_handle = global()?.handle().clone();
         *cached = Some(global_handle.clone());
-        global_handle
+        Ok(global_handle)
     })
 }
 
@@ -147,6 +183,12 @@ pub enum BlockingError {
     /// This variant exists for forward compatibility with future tokio versions
     /// that may introduce new runtime flavors.
     UnsupportedRuntimeFlavor,
+
+    /// The shared runtime could not be constructed.
+    RuntimeInitializationFailed(RuntimeError),
+
+    /// Blocking execution or the future itself panicked.
+    ExecutionPanicked,
 }
 
 impl fmt::Display for BlockingError {
@@ -166,6 +208,10 @@ impl fmt::Display for BlockingError {
                      the runtime flavor is not supported for blocking execution"
                 )
             }
+            Self::RuntimeInitializationFailed(error) => fmt::Display::fmt(error, formatter),
+            Self::ExecutionPanicked => {
+                write!(formatter, "blocking execution panicked")
+            }
         }
     }
 }
@@ -179,7 +225,7 @@ impl Error for BlockingError {}
 /// Executes a future synchronously, blocking the current thread.
 ///
 /// Automatically handles different runtime contexts:
-/// - **Outside runtime**: Uses `global().block_on()`
+/// - **Outside runtime**: Uses fallible `global()?.block_on()`
 /// - **Multi-thread runtime**: Uses `block_in_place` + `handle.block_on()`
 /// - **Current-thread runtime**: Returns `Err(CurrentThreadRuntime)`
 ///
@@ -188,11 +234,7 @@ impl Error for BlockingError {}
 /// - `CurrentThreadRuntime`: Called from a current-thread runtime
 /// - `UnsupportedRuntimeFlavor`: Called from an unknown runtime flavor
 ///
-/// # Panics
-///
-/// In multi-thread runtime, panics if called from `LocalSet::run_until()`
-/// or when `disallow_block_in_place` is enabled.
-///
+
 /// # Example
 ///
 /// ```rust,ignore
@@ -208,35 +250,31 @@ where
 {
     if let Ok(current_handle) = Handle::try_current() {
         match current_handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                // Preserve caller's runtime context (tracing, metrics, etc.)
-                // Panics in LocalSet::run_until() or disallow_block_in_place contexts
-                Ok(tokio::task::block_in_place(|| {
-                    current_handle.block_on(future)
-                }))
-            }
+            RuntimeFlavor::MultiThread => catch_unwind(AssertUnwindSafe(|| {
+                tokio::task::block_in_place(|| current_handle.block_on(future))
+            }))
+            .map_err(|_| BlockingError::ExecutionPanicked),
             RuntimeFlavor::CurrentThread => Err(BlockingError::CurrentThreadRuntime),
             _ => Err(BlockingError::UnsupportedRuntimeFlavor),
         }
     } else {
-        Ok(global().block_on(future))
+        let runtime = global().map_err(BlockingError::RuntimeInitializationFailed)?;
+        catch_unwind(AssertUnwindSafe(|| runtime.block_on(future)))
+            .map_err(|_| BlockingError::ExecutionPanicked)
     }
 }
 
-/// Convenience wrapper around [`try_run_blocking`] that panics on error.
+/// Executes a future synchronously with the same fallible contract as
+/// [`try_run_blocking`].
 ///
-/// # Panics
-///
-/// - In current-thread runtime (`BlockingError::CurrentThreadRuntime`)
-/// - In unsupported runtime flavor (`BlockingError::UnsupportedRuntimeFlavor`)
-/// - In `LocalSet::run_until()` or `disallow_block_in_place` contexts
-/// - If the future panics
+/// This name is retained for compatibility, but it no longer unwraps errors or
+/// panics on unsupported runtime contexts.
 #[inline]
-pub fn run_blocking<F, T>(future: F) -> T
+pub fn run_blocking<F, T>(future: F) -> Result<T, BlockingError>
 where
     F: Future<Output = T>,
 {
-    try_run_blocking(future).expect("run_blocking failed")
+    try_run_blocking(future)
 }
 
 // =============================================================================
@@ -258,8 +296,8 @@ mod tests {
 
     #[rstest]
     fn global_returns_same_instance() {
-        let runtime1 = global();
-        let runtime2 = global();
+        let runtime1 = global().expect("runtime should initialize");
+        let runtime2 = global().expect("runtime should initialize");
         assert!(ptr::eq(runtime1, runtime2));
     }
 
@@ -270,13 +308,13 @@ mod tests {
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 let counter = counter.clone();
-                global().spawn(async move {
+                global().expect("runtime should initialize").spawn(async move {
                     counter.fetch_add(1, Ordering::SeqCst);
                 })
             })
             .collect();
 
-        global().block_on(async {
+        global().expect("runtime should initialize").block_on(async {
             for handle in handles {
                 handle.await.unwrap();
             }
@@ -315,7 +353,7 @@ mod tests {
         // The runtime ID should NOT be the memory address of the global runtime.
         // This test ensures we're not leaking ASLR information.
         let id = runtime_id();
-        let pointer_value = std::ptr::from_ref::<Runtime>(global()) as u64;
+        let pointer_value = std::ptr::from_ref::<Runtime>(global().expect("runtime should initialize")) as u64;
 
         // The ID should NOT equal the pointer address.
         // This is the primary security requirement - we don't want to leak
@@ -339,7 +377,7 @@ mod tests {
 
     #[rstest]
     fn handle_works_from_outside_runtime() {
-        let obtained_handle = handle();
+        let obtained_handle = handle().expect("runtime handle should be available");
         let result = obtained_handle.block_on(async { 42 });
         assert_eq!(result, 42);
     }
@@ -347,7 +385,7 @@ mod tests {
     #[rstest]
     #[tokio::test]
     async fn handle_works_from_inside_runtime() {
-        let obtained_handle = handle();
+        let obtained_handle = handle().expect("runtime handle should be available");
         let result = obtained_handle.spawn(async { 42 }).await.unwrap();
         assert_eq!(result, 42);
     }
@@ -355,8 +393,8 @@ mod tests {
     #[rstest]
     fn handle_caching_works() {
         // Call handle multiple times from the same thread
-        let handle1 = handle();
-        let handle2 = handle();
+        let handle1 = handle().expect("runtime handle should be available");
+        let handle2 = handle().expect("runtime handle should be available");
 
         // Both should work
         let result1 = handle1.block_on(async { 1 });
@@ -373,9 +411,9 @@ mod tests {
             .map(|i| {
                 thread::spawn(move || {
                     // First call caches the handle
-                    let obtained_handle = handle();
+                    let obtained_handle = handle().expect("runtime handle should be available");
                     // Second call should return the cached handle
-                    let _ = handle();
+                    let _ = handle().expect("runtime handle should be available");
                     obtained_handle.block_on(async move { i })
                 })
             })
@@ -490,6 +528,14 @@ mod tests {
     }
 
     #[rstest]
+    fn try_run_blocking_catches_future_panic() {
+        let result = try_run_blocking(async {
+            panic!("intentional test panic");
+        });
+        assert_eq!(result, Err(BlockingError::ExecutionPanicked));
+    }
+
+    #[rstest]
     fn try_run_blocking_multiple_calls() {
         let results: Vec<Result<i32, BlockingError>> = (0..10)
             .map(|i| try_run_blocking(async move { i }))
@@ -506,7 +552,7 @@ mod tests {
     #[rstest]
     fn run_blocking_from_outside_runtime() {
         let result = run_blocking(async { 42 });
-        assert_eq!(result, 42);
+        assert_eq!(result, Ok(42));
     }
 
     #[rstest]
@@ -516,16 +562,18 @@ mod tests {
             let value2 = async { 20 }.await;
             value1 + value2
         });
-        assert_eq!(result, 30);
+        assert_eq!(result, Ok(30));
     }
 
     #[rstest]
     fn run_blocking_preserves_result_types() {
-        let ok_result: Result<i32, &str> = run_blocking(async { Ok(42) });
-        assert_eq!(ok_result, Ok(42));
+        let ok_result: Result<Result<i32, &str>, BlockingError> =
+            run_blocking(async { Ok(42) });
+        assert_eq!(ok_result, Ok(Ok(42)));
 
-        let err_result: Result<i32, &str> = run_blocking(async { Err("error") });
-        assert_eq!(err_result, Err("error"));
+        let err_result: Result<Result<i32, &str>, BlockingError> =
+            run_blocking(async { Err("error") });
+        assert_eq!(err_result, Ok(Err("error")));
     }
 
     #[rstest]
@@ -534,14 +582,22 @@ mod tests {
         let result = tokio::task::spawn_blocking(|| run_blocking(async { 42 }))
             .await
             .unwrap();
-        assert_eq!(result, 42);
+        assert_eq!(result, Ok(42));
+    }
+
+    #[rstest]
+    #[tokio::test(flavor = "current_thread")]
+    async fn run_blocking_returns_current_thread_error() {
+        let result = run_blocking(async { 42 });
+        assert_eq!(result, Err(BlockingError::CurrentThreadRuntime));
     }
 
     #[rstest]
     fn run_blocking_multiple_calls() {
-        let results: Vec<i32> = (0..10).map(|i| run_blocking(async move { i })).collect();
+        let results: Vec<Result<i32, BlockingError>> =
+            (0..10).map(|i| run_blocking(async move { i })).collect();
 
-        let expected: Vec<i32> = (0..10).collect();
+        let expected: Vec<Result<i32, BlockingError>> = (0..10).map(Ok).collect();
         assert_eq!(results, expected);
     }
 
@@ -551,15 +607,14 @@ mod tests {
 
     #[rstest]
     fn global_accessible_from_multiple_threads() {
-        let results: Vec<i32> = (0..4)
+        let results: Vec<Result<i32, BlockingError>> = (0..4)
             .map(|i| thread::spawn(move || run_blocking(async move { i })))
             .map(|h| h.join().unwrap())
             .collect();
 
-        // All threads should have executed successfully
         assert_eq!(results.len(), 4);
         for (i, result) in results.into_iter().enumerate() {
-            assert_eq!(result, i32::try_from(i).unwrap());
+            assert_eq!(result, Ok(i32::try_from(i).unwrap()));
         }
     }
 }

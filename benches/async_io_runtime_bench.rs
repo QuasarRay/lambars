@@ -73,14 +73,14 @@ fn benchmark_runtime_reuse(criterion: &mut Criterion) {
 
     group.bench_function("global_access", |bencher| {
         bencher.iter(|| {
-            let runtime = global();
+            let runtime = global().expect("runtime should initialize");
             black_box(runtime)
         });
     });
 
     group.bench_function("handle_access", |bencher| {
         bencher.iter(|| {
-            let obtained_handle = handle();
+            let obtained_handle = handle().expect("runtime handle should be available");
             black_box(obtained_handle)
         });
     });
@@ -94,7 +94,9 @@ fn benchmark_runtime_reuse(criterion: &mut Criterion) {
 
     group.bench_function("global_block_on_simple", |bencher| {
         bencher.iter(|| {
-            let result = global().block_on(async { black_box(42) });
+            let result = global()
+                .expect("runtime should initialize")
+                .block_on(async { black_box(42) });
             black_box(result)
         });
     });
