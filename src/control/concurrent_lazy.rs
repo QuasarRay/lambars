@@ -133,17 +133,22 @@ impl WaitSync {
 // legitimately force a *different* ConcurrentLazy on the same thread. Only revisiting
 // an instance already present in this stack is a re-entrant cycle.
 thread_local! {
-    static CONCURRENT_LAZY_INIT_STACK: RefCell<Vec<usize>> =
+    static CONCURRENT_LAZY_INIT_STACK: RefCell<Vec<*const ()>> =
         const { RefCell::new(Vec::new()) };
 }
 
-/// Returns a stable identity for this instance for the duration of a borrow.
+/// Returns a strict-provenance-preserving identity pointer for this instance.
 ///
-/// The address is never dereferenced through this integer; it is used only for
-/// equality while the instance is alive.
+/// The pointer is never dereferenced and is retained only while the instance's
+/// initializer is active on the same thread.
 #[inline]
-fn concurrent_lazy_identity<T, F>(lazy: &ConcurrentLazy<T, F>) -> usize {
-    lazy as *const ConcurrentLazy<T, F> as usize
+fn concurrent_lazy_identity<T, F>(lazy: &ConcurrentLazy<T, F>) -> *const () {
+    std::ptr::from_ref(lazy).cast::<()>()
+}
+
+#[inline]
+fn concurrent_lazy_pointer_reentry_matches(active: *const (), candidate: *const ()) -> bool {
+    active == candidate
 }
 
 /// Shared predicate used by production re-entry detection and formal regression
@@ -505,7 +510,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                         stack
                             .borrow()
                             .iter()
-                            .any(|active| concurrent_lazy_reentry_matches(*active, identity))
+                            .any(|active| concurrent_lazy_pointer_reentry_matches(*active, identity))
                     });
                     assert!(
                         !is_reentrant,
@@ -534,7 +539,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             stack
                 .borrow()
                 .iter()
-                .any(|active| concurrent_lazy_reentry_matches(*active, initialization_identity))
+                .any(|active| concurrent_lazy_pointer_reentry_matches(*active, initialization_identity))
         });
         if duplicate {
             {
@@ -881,7 +886,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     stack
                         .borrow()
                         .iter()
-                        .any(|active| concurrent_lazy_reentry_matches(*active, identity))
+                        .any(|active| concurrent_lazy_pointer_reentry_matches(*active, identity))
                 });
             let timed_out = start.elapsed() >= timeout;
 
@@ -985,7 +990,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     stack
                         .borrow()
                         .iter()
-                        .any(|active| concurrent_lazy_reentry_matches(*active, identity))
+                        .any(|active| concurrent_lazy_pointer_reentry_matches(*active, identity))
                 });
 
             match concurrent_lazy_try_force_decision(state, reentrant) {
@@ -1538,6 +1543,19 @@ mod tests {
     fn test_reentry_identity_predicate_distinguishes_instances() {
         assert!(concurrent_lazy_reentry_matches(7, 7));
         assert!(!concurrent_lazy_reentry_matches(7, 8));
+
+        let left = ConcurrentLazy::new(|| 1);
+        let right = ConcurrentLazy::new(|| 2);
+        let left_identity = concurrent_lazy_identity(&left);
+        let right_identity = concurrent_lazy_identity(&right);
+        assert!(concurrent_lazy_pointer_reentry_matches(
+            left_identity,
+            left_identity
+        ));
+        assert!(!concurrent_lazy_pointer_reentry_matches(
+            left_identity,
+            right_identity
+        ));
     }
 
     #[rstest]
