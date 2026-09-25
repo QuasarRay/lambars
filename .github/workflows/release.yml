@@ -15,7 +15,7 @@ jobs:
     name: Safety qualification gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Require SC-001 through SC-040 closed
         run: python verification/tools/check_qualification.py
 
@@ -23,7 +23,7 @@ jobs:
     name: Release source verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Verify tag versions
@@ -56,8 +56,8 @@ jobs:
     name: Release Kani proofs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: model-checking/kani-github-action@v1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: model-checking/kani-github-action@69d357bade1eb7b32bc3fc3d5c3d173c5bfa5237 # v1
         with:
           kani-version: "0.67.0"
           command: "cargo-kani"
@@ -68,8 +68,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master snapshot
         with:
           toolchain: "1.98.1"
       - name: Install pinned Verus release
@@ -95,7 +95,7 @@ jobs:
       attestations: write
       artifact-metadata: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -142,14 +142,14 @@ jobs:
           mv release.sha256 release-evidence/
 
       - name: Attest build provenance and SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             release-evidence/*.crate
             release-evidence/*.rlib
           sbom-path: release-evidence/sbom.cdx.json
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release-evidence-${{ github.sha }}
           path: release-evidence/
@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: crates-io-release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Publish derive crate first
         run: cargo publish -p lambars-derive --locked --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
       - name: Publish root crate
@@ -175,23 +175,23 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: release-evidence-${{ github.sha }}
           path: release-evidence
       - name: Generate changelog for release
         id: git-cliff
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4
         with:
           config: cliff.toml
           args: --latest --strip header
         env:
           GITHUB_REPO: ${{ github.repository }}
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           body: ${{ steps.git-cliff.outputs.content }}
           draft: false
