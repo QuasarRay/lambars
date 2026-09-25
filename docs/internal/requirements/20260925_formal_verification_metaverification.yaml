@@ -1,0 +1,21 @@
+id: REQ-FORMAL-20260925
+title: Dual Verus/Kani production-readiness verification
+status: in_progress
+source_catalog_count: 2533
+requirements:
+  - Every canonical production-readiness test name becomes a normative specification.
+  - Every canonical specification has a Verus proof obligation.
+  - Every canonical specification has a Kani proof obligation.
+  - Shared semantic predicates are reused by both backends whenever their logics permit.
+  - Kani bounds are explicit and are never presented as unbounded proofs.
+  - Verus assumptions and trusted declarations may encode preconditions but never conclusions.
+  - proc_macro2 is the token representation for reusable macro implementation logic.
+  - Infrastructure includes function-like procedural macros, attribute macros, derive macros, declarative delegation macros, and generated backend adapters.
+  - Repetitive library and proof patterns are fingerprinted and moved into reusable infrastructure.
+  - The public library architecture and observable behavior remain unchanged by verification-only code.
+acceptance:
+  canonical_specification_count: 2533
+  verus_obligation_count: 2533
+  kani_obligation_count: 2533
+  duplicate_canonical_ids: 0
+  unclassified_canonical_ids: 0
