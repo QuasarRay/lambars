@@ -10,13 +10,13 @@ edition = "2024"
 rust-version = "1.92.0"
 authors = ["lambars contributors"]
 description = "A functional programming library for Rust providing type classes, persistent data structures, and effect systems"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/lihs-ie/lambars"
+license = "MIT"
+repository = "https://github.com/QuasarRay/lambars"
 keywords = ["functional", "monad", "functor", "persistent", "immutable"]
 categories = ["data-structures", "rust-patterns"]
 
 [dependencies]
-lambars-derive = { path = "lambars-derive", optional = true }
+lambars-derive = { path = "lambars-derive", version = "0.1.0", optional = true }
 tokio = { version = "^1.49", features = ["rt", "rt-multi-thread", "time", "sync", "macros"], optional = true }
 futures = { version = "^0.3", optional = true }
 num_cpus = { version = "1.16", optional = true }

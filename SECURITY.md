@@ -12,11 +12,14 @@ We take the security of lambars seriously. If you discover a security vulnerabil
 
 ### How to Report
 
-1. **Do NOT** open a public GitHub issue for security vulnerabilities
-2. Send an email to the maintainers with:
+1. **Do NOT** publish vulnerability details in a public issue, pull request, discussion, or commit.
+2. If the repository's **Security → Report a vulnerability** control is available, use it to submit the report privately.
+3. If private vulnerability reporting is not available, contact the repository owner **QuasarRay** through GitHub first to establish a private disclosure channel; do not include vulnerability details in the initial public contact.
+4. Include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
+   - Affected versions/configurations
    - Any suggested fixes (optional)
 
 ### What to Expect
@@ -35,9 +38,11 @@ We take the security of lambars seriously. If you discover a security vulnerabil
 
 ### Code Safety
 
-- All `unsafe` code is forbidden (`#![forbid(unsafe_code)]`)
-- Dependencies are regularly updated via Dependabot
-- CI runs security-focused lints
+- The crate uses `#![deny(unsafe_code)]` as the default policy.
+- A small implementation boundary in the lazy/concurrent-lazy subsystem intentionally contains audited `unsafe` operations for `UnsafeCell` / `MaybeUninit` state management. Those exceptions must remain localized and require dedicated concurrency, Kani, and review evidence.
+- The proc-macro and verification crates forbid or deny unsafe code independently.
+- Dependencies are regularly updated via Dependabot; advisory/license/source policy is enforced separately in CI.
+- CI runs security-focused lints and formal-verification gates.
 
 ### Best Practices
 

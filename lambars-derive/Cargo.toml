@@ -5,8 +5,8 @@ edition = "2024"
 rust-version = "1.92.0"
 authors = ["lambars contributors"]
 description = "Derive macros for lambars optics (Lenses and Prisms)"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/lambars/lambars"
+license = "MIT"
+repository = "https://github.com/QuasarRay/lambars"
 keywords = ["functional", "derive", "lens", "prism", "optics"]
 categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
 

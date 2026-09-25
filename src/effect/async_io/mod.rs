@@ -1835,7 +1835,7 @@ impl<A: Send + 'static> AsyncIO<A> {
     ///
     /// # Deprecation
     ///
-    /// This method is deprecated since version 0.2.0.
+    /// This method is deprecated since version 0.1.0.
     /// Use [`runtime::run_blocking`] to execute async computations synchronously,
     /// or `.await` in async contexts.
     ///
@@ -1881,7 +1881,7 @@ impl<A: Send + 'static> AsyncIO<A> {
     /// Panics if called from within a current-thread runtime.
     #[must_use]
     #[deprecated(
-        since = "0.2.0",
+        since = "0.1.0",
         note = "Use `runtime::run_blocking` or await in async context"
     )]
     #[allow(deprecated)]
