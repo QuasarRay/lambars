@@ -9,7 +9,7 @@
 //! Using proptest, we generate random inputs to thoroughly verify these laws
 //! across a wide range of values.
 
-use lambars::typeclass::{Functor, FunctorMut, Identity};
+use lambars::typeclass::{Functor, FunctorMut, FunctorRef, Identity};
 use proptest::prelude::*;
 
 // =============================================================================

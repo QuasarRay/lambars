@@ -174,3 +174,64 @@ mod ordered_unique_set_regressions {
         assert!(normalized_three(a, b, c));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod io_functor_regressions {
+    use lambars::effect::IO;
+    use lambars::typeclass::{Functor, FunctorRef};
+
+    static_assertions::assert_not_impl_any!(IO<u8>: FunctorRef);
+
+    fn io_fmap_executes_total(value: u8) -> bool {
+        IO::pure(value)
+            .fmap(|x| x.wrapping_add(1))
+            .run_unsafe()
+            == value.wrapping_add(1)
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc005_io_exposes_only_total_functor_capability() {
+        assert!(io_fmap_executes_total(41));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc005_io_functor_fmap_is_total_for_symbolic_u8() {
+        let value: u8 = kani::any();
+        assert!(io_fmap_executes_total(value));
+    }
+}
+
+
+#[cfg(any(test, kani))]
+mod vec_functor_regressions {
+    use lambars::typeclass::Functor;
+
+    fn vec_fmap_preserves_all_elements(a: u8, b: u8, c: u8) -> bool {
+        let source = vec![a, b, c];
+        let mapped = source.fmap(|value| value.wrapping_add(1));
+        mapped
+            == vec![
+                a.wrapping_add(1),
+                b.wrapping_add(1),
+                c.wrapping_add(1),
+            ]
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn vec_functor_does_not_drop_tail_elements() {
+        assert!(vec_fmap_preserves_all_elements(1, 2, 3));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn vec_functor_maps_every_symbolic_element() {
+        let a: u8 = kani::any();
+        let b: u8 = kani::any();
+        let c: u8 = kani::any();
+        assert!(vec_fmap_preserves_all_elements(a, b, c));
+    }
+}

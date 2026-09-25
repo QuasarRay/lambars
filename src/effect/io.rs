@@ -367,28 +367,15 @@ impl<A> crate::typeclass::TypeConstructor for IO<A> {
 // =============================================================================
 
 impl<A: 'static> crate::typeclass::Functor for IO<A> {
-    fn fmap<B, F>(self, function: F) -> Self::WithType<B>
+    fn fmap<B, F>(self, mut function: F) -> Self::WithType<B>
     where
-        F: FnOnce(Self::Inner) -> B + 'static,
+        F: FnMut(Self::Inner) -> B + 'static,
         B: 'static,
     {
         IO::new(move || {
             let a = self.run_unsafe();
             function(a)
         })
-    }
-
-    fn fmap_ref<B, F>(&self, _function: F) -> Self::WithType<B>
-    where
-        F: FnOnce(&Self::Inner) -> B + 'static,
-        B: 'static,
-    {
-        // IO cannot implement fmap_ref properly because the value is not available
-        // until the IO is executed. We would need to execute the IO to get a reference.
-        // This is a limitation of IO's deferred execution model.
-        unimplemented!(
-            "IO::fmap_ref is not available. Use fmap instead, which executes the IO lazily."
-        )
     }
 }
 
