@@ -145,6 +145,8 @@ pub use hashmap::MAX_BULK_INSERT;
 pub use hashmap::NodePool;
 pub use hashmap::NodePoolMetrics;
 pub use hashmap::PersistentHashMap;
+#[doc(hidden)]
+pub use hashmap::persistent_hashmap_generation_successor;
 pub use hashmap::PersistentHashMapIntoIterator;
 pub use hashmap::PersistentHashMapIterator;
 pub use hashmap::TransientHashMap;
