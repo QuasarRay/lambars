@@ -1,0 +1,33 @@
+[workspace]
+
+[package]
+name = "lambars-iai-benchmarks"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92.0"
+publish = false
+description = "Standalone IAI-Callgrind profiling workspace for Lambars"
+
+[dependencies]
+lambars = { path = "../.." }
+iai-callgrind = "=0.16.1"
+
+[[bench]]
+name = "persistent_vector_iai"
+path = "persistent_vector_iai.rs"
+harness = false
+
+[[bench]]
+name = "effect_iai"
+path = "effect_iai.rs"
+harness = false
+
+[[bench]]
+name = "scenario_iai"
+path = "scenario_iai.rs"
+harness = false
+
+[[bench]]
+name = "ordered_unique_set_iai"
+path = "ordered_unique_set_iai.rs"
+harness = false
