@@ -52,7 +52,6 @@ pub const VERUS_FORMAL_MODEL_COVERAGE: &[&str] = &[
     "constant_returns_cloned_constant_for_every_input",
     "flip_swaps_binary_function_argument_order",
     "flip_applied_twice_matches_original_binary_function",
-    "placeholder_constant_has_expected_zero_sized_marker_semantics",
     "compose_two_functions_applies_functions_right_to_left",
     "compose_three_functions_applies_functions_right_to_left",
     "compose_many_functions_preserves_right_to_left_order",
