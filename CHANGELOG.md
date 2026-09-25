@@ -4,57 +4,138 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Breaking Changes
-
-- **typeclass**: Add `'static` bound to `Functor::fmap`, `Applicative::pure`/`map2`, and `Monad::flat_map` type parameters. This is required for IO monad implementation. External crates implementing these traits may need to update their implementations.
-
-### Deprecated
-
-- **effect/async_io**: `AsyncIO::run_async()` is now deprecated in favor of direct `await`. See [Migration Guide](#asyncio-run_async-migration-guide) below.
-
-### Migration Guides
-
-#### AsyncIO run_async Migration Guide
-
-`AsyncIO::run_async()` is deprecated since version 0.2.0. Use direct `await` instead for better performance (avoids unnecessary `Box::pin` heap allocation).
-
-##### In async context
-
-```rust
-// Before (deprecated)
-let result = AsyncIO::pure(42).run_async().await;
-
-// After (recommended)
-let result = AsyncIO::pure(42).await;
-```
-
-##### In sync context
-
-```rust
-use lambars::effect::async_io::runtime;
-
-// Before (deprecated)
-let result = runtime::run_blocking(AsyncIO::pure(42).run_async());
-
-// After (recommended) - AsyncIO implements Future, so it can be passed directly
-let result = runtime::run_blocking(AsyncIO::pure(42));
-```
-
-##### Suppressing the warning
-
-If you need to suppress this warning temporarily during migration:
-
-```rust
-#[allow(deprecated)]
-let result = AsyncIO::pure(42).run_async().await;
-```
-
-For projects using `deny(warnings)`, add `#[allow(deprecated)]` to the specific call site or module during the migration period.
-
 ### Bug Fixes
 
-- **benches**: Fix HTTP status collection not reflected in meta.json
-- **benches**: Fix thread-local status aggregation in result_collector
+- **bench**: Fix wrk2 verification under pipefail
+- **bench**: Remove mktemp placeholder before perf record to fix ownership
+- **bench**: Add perf symlink workaround for Ubuntu Bug #2117159
+- **bench**: Revert runner pin and restore apt-get fallbacks for kernel compatibility
+- **bench**: Pin profiling runner to ubuntu-22.04 for perf compatibility
+- **bench**: Address codex review for artifact validation completeness
+- **bench**: Address codex review feedback for profiling validation
+- **bench**: Add perf capability probe and artifact integrity validation
+- **bench**: Add perf capability probe and artifact integrity validation
+- **persistent**: Address final Codex review findings for Phase6
+- **benches**: Resolve metrics integrity gaps (Phase3) (#275)
+- **chore**: Remove unused loom feature and revert CI to --all-features (#271)
+- **benches**: Tasks_bulk/tasks_update エラー率改善 (#265)
+- **persistent**: Recover PersistentVector::push_back performance regression
+- **benches**: Use .run().await instead of .await for ExceptT
+- **ci**: Dynamically detect IAI benchmarks in benchmark-pr workflow
+- **benches**: Add missing benchmark files to Dockerfile dummy list
+- **benches**: Separate conflict_rate/error_rate/client_error_rate in API benchmarks
+- **bench**: Update JSON schema required percentiles from p95 to p90
+- **bench**: Replace p95 with p90 for percentile validation
+- **bench**: Escape printf format strings starting with dashes
+- **bench**: Support wrk2 percentile output format
+- **bench**: Address Codex review findings for percentile validation
+- **bench**: Use null sentinel for percentile fields in lua_metrics
+- **bench**: Support human-readable DATA_SCALE from environment
+- **bench**: Add default RPS for wrk2 when target_rps is not specified
+- **bench**: Fix invalid metadata values in RPS smoke test scenarios
+- **bench**: Improve Lua error detection in compatibility test
+- **ci**: Install wrk2 in profiling workflow
+- **bench**: Fix arithmetic increment under set -e in Lua compatibility test
+- **bench**: Add wrk symlink for backward compatibility with main branch
+- **bench**: Fix wrk2 installation verification in CI
+- **bench**: Add init.sql mount to CI compose configuration
+- **bench**: Disable error injection in tasks_bulk scenario
+- **ci**: Handle Azure CLI repository 403 error in apt-get update
+- **docker**: Dockerfile に async_io_runtime_bench を追加
+- **test**: Async_io_pool_tests に feature gate 追加
+- **bench**: Setup_test_data.sh に get_task_state 等の関数を追加
+- **bench**: Remove invalid cache_strategy from cold scenario
+- **ci**: Pipeline
+- **prof**: Combine criterion artifacts
+- **ci**: Summary
+- **ci**: Chmod
+- **ci**: Scenario pasth
+- **ci**: Chmod
+- **ci**: Artifact path
+- **ci**: Tools
+- **ci**: Concurrency
+- **ci**: Use cpu-clock software event for API profiling in VM
+- **ci**: Rename gawk variable 'func' to 'fname' to avoid reserved word
+- **bench**: Fix percentile extraction matching wrong lines in wrk output
+- **ci**: Handle empty profiling results in upload artifact step
+- **ci**: Fix empty profiling results in GitHub Actions
+- **ci**: Skip comparison when baseline uses old format
+- **bench**: Ensure load_scenario_env_vars returns success
+- **ci**: Add fallback for main branch without --scenario support
+- **bench**: Fix random string generation hanging in CI
+- **bench**: Add debug output to setup_test_data.sh
+- **bench**: Improve CI data setup reliability
+- **bench**: Add curl timeout and progress display to setup_test_data.sh
+- **bench**: Exclude benches/api from workspace for standalone build
+- **control**: Try_map doctest の不正な逆参照を修正 #224
+- **control**: Codexレビュー指摘対応 - Debug/Display Ready状態とベンチマークp95文書化 #224
+- **control**: Debug/Display フォーマットとベンチマーク修正 #224
+- **effect**: Phase 1 Codex レビュー指摘対応 #223
+- **test**: Gate fast_hash_tests behind persistent feature #221
+- **persistent**: Phase 8 - FromIterator を TransientVector 経由に修正
+- **persistent**: Phase 6 - TransientVector pop_back の tail 取得ロジック修正
+- **persistent**: Phase 6 - TransientVector pop_back の空 tail 対応
+- **persistent**: 複数 concat 後の pop_back で葉が失われる問題を修正
+- **persistent**: Phase 3 - pop_back の root/tail サイズ整合性を修正
+- **persistent**: Phase 3 - last/pop_back の空 tail 対応
+- **persistent**: Phase 2 - IntoIterator の二重コピーを削減
+- **persistent**: Phase 2 - size_table 管理とイテレータを修正
+- **persistent**: Phase 1 - LeafChunk 空チェックを assert! に変更
+- **persistent**: Node::regularize の問題修正と transient の O(1) 維持
+- **persistent**: Codex レビュー指摘修正
+- **ci**: Use gawk instead of awk in profiling workflow
+- **ci**: Dynamically resolve iai-callgrind-runner version
+- **ci**: Correct rust-toolchain action name in profiling workflow
+- **ci**: Add eff_async_macro_bench to API benchmark Dockerfile
+- **ci**: Strip ANSI escape codes from benchmark PR comments
+- **deps**: Merge duplicate smallvec entries in Cargo.toml
+- **ci**: Update iai-callgrind-runner for PR branch version changes
+- **api**: Pass summary parameter to print_summary in Lua scripts
+- **api**: Reduce simulated tree depth to prevent OOM
+- **ci**: Reduce benchmark concurrency and increase memory limit
+- **ci**: Increase logging and add memory limit for debugging
+- **ci**: Add API logs and benchmark validation to debug failures
+- **api**: Set CARGO_TARGET_DIR to fix binary path in Docker build
+- **api**: Simplify Dockerfile to fix unresolved import errors
+- **api**: Add dummy bench files to Dockerfile for CI build
+- **ci**: Add --save-baseline flag for new benchmarks
+- **ci**: Handle new benchmarks without baseline in main
+- **ci**: Match iai-callgrind-runner version and fix error handling
+- Add required-features to iai_benchmark_validation test
+- **docker**: Correct binary path and port mappings for API benchmark
+- **typeclass**: Address review comments for Alternative
+- **typeclass**: Add cfg gate for alternative_laws test
+- **typeclass**: Add feature gate to Bifunctor tests
+- **persistent**: Fix PersistentTreeMap serde Deserialize to use map format
+- **typeclass**: Address review comments on Flatten tests
+- **typeclass**: Allow large_stack_arrays in tests for proptest
+- **document**: Implementation flow
+- **document**: Implementation flow
+- **derive**: Use Span::call_site() for consistent compile_fail tests
+- **ci**: Update Rust nightly to 2025-12-15 for 1.92.0 compatibility
+- **ci**: Pin Rust version to nightly-2025-06-01 for consistent compile_fail tests
+- **document**: Testing method
+- **document**: Remove testing before commit
+- **document**: Add codex in review flow
+- **document**: Document build
+- **effect**: Simplify redundant doc comments in error.rs
+- **effect**: Remove Japanese comments from test files
+- **effect**: Translate Japanese comment to English in test code
+- **effect**: Address PR #55 review feedback
+- **document**: CLAUDE.md
+- **document**: Copilot-instructions
+- **effect**: Add backticks to doc comment for clippy compliance
+- **effect**: Address PR review comments for async control flow
+- **document**: Remove settings.local.json
+- **effect**: Improve panic safety in async control flow utilities
+- **persistent**: Remove comment
+- **document**: Add unnecessary comment rule when review
+- **persistent**: Remove: unnecessary comment
+- **persistent**: Improve cast type safety
+- **ci**: Upgrade peter-evans/create-pull-request to v7
+- Address PR review comments
+- Address PR review comments for Display trait
+- Std::hint::black_box
 - Documents directory
 - Clippy
 - Tests
@@ -70,12 +151,447 @@ For projects using `deny(warnings)`, add `#[allow(deprecated)]` to the specific 
 - README
 - Clippy
 
+### CI/CD
+
+- Bump bencherdev/bencher from 0.4.20 to 0.5.10
+- Bump actions/github-script from 7 to 8
+- Bump actions/upload-artifact from 4 to 6
+- Bump peter-evans/create-pull-request from 7 to 8
+- Update changelog workflow to create PR instead of direct push
+- Integrate changelog generation into release workflow
+- Bump actions/checkout from 4 to 6
+- Bump actions/labeler from 5.0.0 to 6.0.1
+- Bump codecov/codecov-action from 4 to 5
+- Bump actions/cache from 4 to 5
+
+### Dependencies
+
+- Bump iai-callgrind from 0.14.2 to 0.16.1
+- Bump serde_json from 1.0.148 to 1.0.149
+- Bump criterion from 0.5.1 to 0.8.1
+- Bump tokio from 1.48.0 to 1.49.0
+- Bump rstest from 0.24.0 to 0.26.1
+
+### Documentation
+
+- Fix Codex review findings for Phase5 and move requirements to done/
+- Move Phase4 requirements to done/
+- Move Phase3 requirements and plan to done/
+- **compose**: Fix broken rustdoc links to should_use_smallvec
+- Move profiling_data_quality requirement to done
+- Move completed requirement to done directory (Phase 9)
+- Move search_index_ngram requirement to done
+- **bench**: Translate Japanese comments to English in test_lua_compatibility.sh
+- **bench**: Add cache configuration and X-Cache headers documentation
+- **bench**: Add interpretation notes to cache semantics requirements
+- **compose**: 完了した要件定義を done/ に移動
+- **effect**: 完了した要件定義を done/ に移動
+- Move issue-221 files to done #221
+- **persistent**: PersistentVector パフォーマンス要件定義を done に移動 #222
+- Move issue-209 files to done
+- **effect**: Add eff_async! macro performance optimization requirements
+- **control**: Record Trampoline optimization results as not effective
+- **plan**: Mark Phase 4 and 5 as completed
+- **bench**: Add benchmark documentation
+- **requirements**: Add Iai-Callgrind benchmark requirements
+- **plans**: Add continuous benchmark system roadmap
+- **effect**: Add requirements for Algebraic Effect performance optimization
+- **effect**: Move Writer Effect O(n²) issue and requirements to done
+- Add Alternative to type class listings and comparison tables
+- Add Freer monad to language comparison tables
+- Fix Freer monad type annotation in README examples
+- **control**: Move Freer continuation queue requirements to done
+- **control**: Add Freer O(n²) performance improvement requirements
+- **internal**: Move Freer monad requirements to done
+- Add Freer monad to README documentation
+- **internal**: Add future work priorities list
+- **control**: Move Trampoline API cleanup requirements to done
+- **control**: Move Trampoline performance requirements to done
+- **persistent**: Update PersistentTreeMap references from Red-Black Tree to B-Tree
+- **persistent**: Move PersistentTreeMap B-Tree requirements to done
+- Update PersistentTreeMap description to reflect B-Tree implementation
+- **persistent**: Add B-Tree migration requirements for PersistentTreeMap
+- **control**: Move ConcurrentLazy requirements to done
+- **persistent**: Add PersistentDeque to external documentation
+- **persistent**: Add future extension issues for PersistentDeque
+- **persistent**: Add PersistentDeque requirements definition
+- Move pipe_async direct application requirements to done
+- **persistent**: Move RRB-Tree concat requirements to done
+- Move RRB-Tree concat requirements to done
+- **persistent**: Add RRB-Tree concat requirements definition
+- Address PR #136 review comments
+- Add pipe_io! macro to language comparison tables
+- Fix pipe! macro documentation to match implementation
+- Add pipe! monadic operators to language comparison tables
+- Fix relative links in README files
+- Add AI translation notice to Japanese documents
+- Add Japanese documentation
+- Add Ord trait to comparison documentation
+- Update README and Scala comparison for rayon integration
+- Add MonadError comparison to F# docs
+- Add MonadError enhanced error handling comparison
+- Update comparison docs for Flatten trait
+- **persistent**: Add transient data structures requirements
+- **effect**: Move requirement to done folder
+- Add issue for serde deserialize Vec optimization (#69)
+- Add serde feature to README feature flags table
+- **persistent**: Update documentation for reference counting
+- Add RWST monad transformer issue file
+- Add RWS monad to F# and Scala comparison guides
+- Add RWS monad documentation
+- **typeclass**: Add rustdoc comments explaining Result type constraints for traverse methods
+- Fix algebraic effects code examples in documentation
+- Add algebraic effects documentation
+- Add HashSetView examples to README and comparison docs
+- Add AsyncIO transformer support documentation
+- Move async effect integration specs to done
+- **optics**: Add library documentation with examples
+- Update implementation procedure and add simplification agent
+- Move completed compound optics documents to done
+- Move display trait specs to done
+
 ### Features
 
-- **benches**: Add lua_metrics.json generation and phase merging pipeline
-- **benches**: Add HTTP status distribution to summary.txt
-- **benches**: Add raw_wrk.txt for done handler output preservation
-- **benches**: Add test_http_status_pipeline.sh for pipeline validation
+- **bench**: Implement validate_profiling_artifacts.sh
+- **benches**: ベンチマーク網羅性の改善 (#259)
+- **persistent**: Add bulk construction APIs for SearchIndex and TransientHashMap (#257)
+- **effect**: Deprecate AsyncIO::run_async() in favor of direct await
+- **benches**: Add benchmark comparison tools for bulk construction API analysis (REQ-BOTTLENECK-004)
+- **persistent**: Measure bulk construction API effects in SearchIndex
+- **benches**: Add bulk construction API benchmarks for performance measurement
+- **persistent**: Add bulk construction APIs for OrderedUniqueSet and PersistentVector
+- **persistent**: Generalize TaskIdCollection to OrderedUniqueSet<T>
+- **persistent**: Add TaskIdCollection and TransientTreeMap for SearchIndex optimization
+- **persistent**: SearchIndex 永続構造の clone/alloc 削減
+- **bench**: Implement SearchIndex batch update optimizations
+- **bench**: Implement SearchIndex batch update optimizations
+- **bench**: Implement JSON serialization buffer optimization
+- **bench**: Add JSON serialization buffer optimization
+- **bench**: Add merge metrics to SearchIndexKeyMetrics (Phase 6)
+- **bench**: Add prepare_posting_lists for delta pre-processing (Phase 1)
+- **bench**: Add SearchIndexNgramMetrics for memory optimization tracking (Phase 7)
+- **bench**: Adapt SearchIndexDelta to use NgramKey (Phase 4)
+- **bench**: Add streaming n-gram indexing functions (Phase 3)
+- **bench**: Add NgramWindow streaming iterator (Phase 2)
+- **bench**: Add NgramKey and NgramKeyPool for string interning (Phase 1)
+- **bench**: Add SearchIndexBuildMetrics for build profiling (Phase 7)
+- **bench**: Add P75/P90 percentile extraction (Phase 6)
+- **bench**: Switch bulk operations to batch index update (Phase 5)
+- **bench**: Add AppState::update_search_index_batch (Phase 4)
+- **bench**: Add SearchIndex::apply_changes batch update (Phase 3)
+- **bench**: Add SearchIndexDelta::from_changes for batch delta construction (Phase 2)
+- **bench**: Add SearchIndexDelta type for batch updates (Phase 1)
+- **bench**: Implement n-gram inverted index for SearchIndex
+- **xtask**: Add dry-run support for bench-api (ENV-REQ-031)
+- **bench**: Add /debug/config endpoint and applied_env to meta.json (ENV-REQ-030)
+- **bench**: Limit run_benchmark.sh responsibilities and unify var names
+- **xtask**: Add Docker env injection and ApiGuard for cleanup (ENV-REQ-010)
+- **bench**: Add environment variable templates to compose.ci.yaml (ENV-REQ-011)
+- **bench**: Make tokio runtime worker_threads configurable (ENV-REQ-020)
+- **bench**: Add pool size configuration to RepositoryConfig (ENV-REQ-021)
+- **bench**: Implement API scenario environment application
+- **bench**: Implement wrk2 rate control for API benchmarks
+- **bench**: Add cache metrics environment variables and warmup support
+- **bench**: Reconfigure RepositoryFactory for CacheRepository integration
+- **bench**: Add X-Cache header support for cache status reporting
+- **bench**: Implement CacheRepository for Redis cache layer
+- **bench**: Implement API benchmark realism gap fixes
+- **bench**: Add debug logging for bulk optimization verification
+- **bench**: Add tasks_bulk to nightly benchmark scenarios
+- **bench**: Enable bulk optimization in CI environments
+- **bench**: Integrate optimized bulk save into handlers
+- **bench**: Add fallback strategy with error preservation
+- **bench**: Implement parallel chunk processing for save_tasks_bulk
+- **effect**: Add chunk splitting utilities for bulk operations
+- **effect**: Add save_bulk interface to TaskRepository
+- **effect**: Tasks_bulk 尾部レイテンシ改善の実装開始
+- **bench**: Implement API metrics integrity gap fix
+- **bench**: API メトリクス整合性保証の実装開始
+- **control**: Add benchmark and tests for Lazy/ConcurrentLazy force verification
+- **control**: Lazy/ConcurrentLazy force 割当削減対応開始
+- **compose**: For_! マクロの FlatMap 連鎖による割当削減 [**BREAKING**]
+- **compose**: For_! マクロの FlatMap 連鎖による割当削減
+- **effect**: AsyncIO runtime オーバーヘッド削減
+- **effect**: AsyncIO runtime オーバーヘッド削減の実装開始
+- **bench**: /tasks/{id} 更新エラー率解消
+- **bench**: Start api tasks update error rate fix
+- **api**: Phase 9 統合テストと回帰検知
+- **api**: Phase 8 CI閾値判定スクリプト (REQ-SEARCH-MET-001)
+- **api**: Phase 7 ベンチマークシナリオ追加 (REQ-SEARCH-BENCH-001)
+- **api**: Phase 6 PostgreSQLインデックス追加 (REQ-SEARCH-DB-001)
+- **api**: Phase 5 検索結果キャッシュ (REQ-SEARCH-CACHE-001後半)
+- **api**: Phase 4 AppStateへのArcSwap統合 (REQ-SEARCH-INDEX-001後半)
+- **api**: Phase 3 SearchIndex差分更新 (REQ-SEARCH-INDEX-001前半)
+- **api**: Phase 2 クエリ正規化 (REQ-SEARCH-CACHE-001前半)
+- **api**: Phase 1 API契約厳密化 (REQ-SEARCH-API-001)
+- **api**: /tasks/search 高遅延解消の実装開始
+- **bench**: Integrate API benchmarks with CI workflow
+- **bench**: Add endpoint-specific benchmarks and comparison tools
+- **bench**: Implement comprehensive API benchmark coverage
+- **effect**: Freer モナド実行系の高速化 #226
+- **persistent**: Phase 1 - LeafChunk/TailChunk 基礎型定義
+- **ci**: Add text output formats to profiling workflow
+- **ci**: Add comprehensive profiling workflow
+- **ci**: Add bottleneck analysis to API benchmark
+- **ci**: Add main branch comparison to API benchmark PR comments
+- **ci**: Add API Workload Benchmark results as PR comment
+- **api**: Add wrk benchmark CI integration with Docker optimization
+- **api**: Add miscellaneous lambars features handlers (Phase 2.10)
+- **api**: Add advanced Optics handlers demonstrating VecTraversal, FilteredTraversal, At (Phase 2.9)
+- **api**: Add Applicative handlers demonstrating lambars features (Step 8)
+- **api**: Add Bifunctor-based two-parameter type transformations (Phase 2.7)
+- **api**: Add pipe_async! based async pipeline handlers (Phase 2.6)
+- **api**: Add Alternative-based fallback and choice handlers (Phase 2.5)
+- **api**: Add Traversable-based batch processing handlers (Phase 2.4)
+- **api**: Add PersistentTreeMap-based ordered operations (Phase 2.3)
+- **api**: Add Trampoline-based stack-safe recursion handlers (Phase 2.2)
+- **api**: Integrate DEMO_ONLY functions into real handlers (Phase 2.1)
+- **api**: Add type class handlers demonstrating lambars features (Step 10)
+- **api**: Add effects and optics handlers demonstrating lambars features
+- **api**: Add advanced feature handlers (Step 8)
+- **api**: Add project handlers (Step 7)
+- **api**: Add bulk operation handlers (Step 6)
+- **api**: Add query handlers for task listing and search (Step 5)
+- **api**: Implement task transaction handlers with Lens and Either patterns
+- **bench-api**: Add POST /tasks-eff endpoint with ExceptT + AsyncIO pattern
+- **ci**: Add Iai-Callgrind benchmark workflows for CI/CD
+- **docker**: Add Docker environments for benchmarks
+- **api**: Integrate main.rs routing with repository factory
+- **api**: Add repository factory for environment-based switching
+- **api**: Add PostgreSQL repository implementations
+- **api**: Add Redis repository implementations with atomic operations
+- **api**: Add InMemory repository implementations
+- **bench**: Add Task Management Benchmark API (Phase 2)
+- **bench**: Implement Iai-Callgrind benchmarks (Phase 1)
+- **effect**: Add AsyncIO support to ExceptT
+- **typeclass**: Add Alternative type class
+- **typeclass**: Start Alternative implementation
+- **typeclass**: Add Bifunctor type class for Either/Result/Tuple
+- **typeclass**: Start Bifunctor implementation
+- **control**: Complete Freer monad implementation
+- **control**: Implement Freer monad for DSL construction
+- **control**: Implement ConcurrentLazy for thread-safe lazy evaluation
+- **control**: Add ConcurrentLazy implementation
+- **persistent**: Complete PersistentDeque implementation
+- **persistent**: Add PersistentDeque stub for issue #22
+- **compose**: Add direct function application to pipe_async! macro
+- **compose**: Add direct function application to pipe_async! macro
+- **persistent**: Implement concat method for PersistentVector
+- **persistent**: Add RelaxedBranch node variant for RRB-Tree support
+- **compose**: Add pipe_io! macro for AsyncIO pipeline operations
+- **effect**: Implement Functor/Applicative/Monad traits for IO [**BREAKING**]
+- **compose**: Add monadic operators to pipe! macro
+- **typeclass**: Add traverse_async_io_parallel for concurrent AsyncIO traversal
+- **persistent**: Implement Ord trait for PersistentList and PersistentVector
+- **persistent**: Rayon 統合による並列イテレータサポート (#113)
+- **effect**: Add enhanced error handling operations
+- **persistent**: Implement transient data structures
+- **compose**: Implement variadic curry! macro with two input forms
+- **persistent,control**: Add serde serialization/deserialization support
+- **persistent**: Implement thread-safe persistent data structures
+- **persistent**: Add map iteration and transformation operations
+- **effect**: Add RWS monad combining Reader, Writer, and State
+- **persistent**: Add list/vector utility operations
+- **typeclass**: Add traverse methods for Reader, State, IO, and AsyncIO
+- **effect**: Implement algebraic effects system
+- **persistent**: Export HashSetView from persistent module
+- **persistent**: Add HashSetView for lazy set operations
+- **effect**: Add Result-based error handling for lift methods
+- **effect**: Add async effect integration for monad transformers
+- Add integration test scenario slash command and rstest policy
+- **optics**: Add compound optics combinators
+- **bench**: Add async_io bench
+- **effect**: Add async control flow utilities
+- **persistent,effect,control**: Add Display trait implementations
 - AsyncIO
 - Sample application
 - Basic APIs
+
+### Miscellaneous
+
+- Remove ore-tdd TODO.md accidentally committed by sub-agent
+- Mark ubuntu-22.04 pin task as done in TODO.md
+- **docs**: Move Phase8 requirement to done
+- **docs**: Move Phase7 requirement to done
+- Start for_! macro allocation optimization
+- Move completed requirement to done directory
+- Investigation task for REQ-BOTTLENECK-003
+- **bench**: Init profiling data quality improvement
+- Move posting list optimization requirement to done
+- **docs**: Move api_cache_semantics requirements to done
+- Move tasks_bulk_latency issue to done
+- **prof**: Combine
+- **ci**: Run all scenario
+- **ci**: Fix api profiling
+- **bench**: Start benches/api benchmark coverage implementation
+- **docs**: Move for_macro_perf requirements to done #225
+- **compose**: Start for_! macro performance optimization #225
+- **docs**: Move Lazy/ConcurrentLazy requirements to done #224
+- Merge feature/performance-improvement into issue-222
+- Merge feature/performance-improvement into issue-223 branch
+- **persistent**: Start PersistentVector RRB rework #222
+- **ci**: Remove debug settings from benchmark workflow
+- **api**: Apply formatting fixes
+- **api**: Apply formatting fixes and update iai-callgrind-runner
+- **effect**: Start Writer Effect O(n²) optimization
+- **effect**: Move completed issue to done directory
+- Move Alternative requirements to done/
+- Move completed requirements and issue files to done/
+- Start work on issue #137 - pipe_io! macro for AsyncIO
+- Move requirements to done directory
+- Start work on issue #135 - pipe! macro monad extension
+- Move requirements to done directory
+- **persistent**: Start lazy map iterator implementation
+- **document**: Change path
+- **doucment**: README path
+- **document**: Change paths
+- **document**: Fix README.md path
+- **document**: Change directory
+- Move Ord trait requirements to done
+- Move rayon integration requirements to done
+- Start work on issue #16 error handling enhancement
+- Move flatten trait requirements to done
+- Move transient data structures requirement to done
+- Move serde support docs to done directory
+- **persistent**: Start serde support implementation
+- Move completed requirement and plan to done folder
+- **persistent**: Add thread-safe persistent structures requirements and plan
+- **docs**: Move completed issue-7 docs to done directory
+- **persistent**: Start map iteration/transformation operations
+- Move completed RWS docs to done directory
+- Initialize issue-6 list-vector-utilities branch
+- **docs**: Move algebraic effects design docs to done
+- **effect**: Initial commit for algebraic effects implementation
+- **docs**: Add future issue for PersistentHashMap Arc migration
+- **docs**: Move hashset view design docs to done
+- Update rust-simplification-specialist agent
+- Add development environment configurations
+
+### Performance
+
+- **bench**: Add phase-aware threshold evaluation for profiling scenarios (#291)
+- **bench**: Enforce merge_path_detail fail gate and staged regression guard (#282)
+- **bench**: Reduce tasks_update 409 conflict rate and add bulk arena + merge telemetry
+- **persistent**: Phase8 replace cloned iterators with extend_from_slice
+- **persistent**: Phase7-D single-writer search index update
+- **persistent**: Phase7-C allocation reduction and compaction tuning
+- **persistent**: Phase7-B query-side merge optimization
+- **persistent**: Phase7-A slice-based merge for OrderedUniqueSet
+- **persistent**: Phase6-C adaptive merge with galloping and binary-search insert
+- **persistent**: Phase6-B NgramSegmentOverlay for LSM-style write path
+- **persistent**: Phase6-A insert_bulk_drain API and chunk buffer reuse
+- **persistent**: Phase5 owned delta API, concat fast-path, and revert append_or_merge_sorted
+- **persistent**: Fix Codex review findings for Phase4 materialization
+- **persistent**: Phase4 add-only materialization optimization
+- **persistent**: Fix Codex review findings for streaming merge
+- **persistent**: Phase3-B add-only fast path for tasks_bulk delta merge
+- **persistent**: Phase3-A streaming merge for tasks_bulk posting lists
+- **persistent**: Streaming merge pipeline for tasks_bulk
+- **benches**: Fix tasks_update error_rate measurement and add retry mechanism (#272)
+- **persistent**: Tasks_bulk SearchIndex 結合処理最適化 (#270)
+- **benches**: Tasks_bulk/tasks_update ボトルネック改善 (#268)
+- **benches**: Production_load文字列生成の最適化 (#266)
+- **compose**: Add size_hint and SmallVec optimization utilities for for_! macro
+- **persistent**: Add #[inline(always)] to PersistentVector push_back hotpath
+- **bench**: Unify perf profiling config and improve symbol resolution
+- **bench**: Migrate NgramIndex key to NgramKey and optimize merge (Phase 5)
+- **bench**: Avoid existing Vec collection in posting list merge (Phase 4)
+- **bench**: Unify KeyPool for prefix and ngram indexes (Phase 3)
+- **bench**: Add 1-pass compute_merged_posting_list_sorted (Phase 2)
+- **bench**: Optimize single add_task normalization (Phase 5.5)
+- **effect**: Optimize PostgreSQL save_bulk with UNNEST batch INSERT
+- **ci**: Parallelize Criterion profiling with matrix jobs
+- **compose**: For_! マクロ パフォーマンス最適化 #225
+- **control**: Lazy/ConcurrentLazy AtomicU8状態機械 + MaybeUninit実装 #224
+- **control**: Lazy/ConcurrentLazy ロックレス化 #224
+- **effect**: Implement eager evaluation for fmap on Pure values #223
+- **effect**: Phase 6-7 - ベンチマーク更新・Monad法則テスト #223
+- **effect**: Phase 5 - to_sync deprecation 実装 #223
+- **effect**: Phase 4 - batch_run API 実装 #223
+- **effect**: Phase 3 - エラーハンドリング最適化 #223
+- **effect**: Phase 2 - AsyncIO impl Future 実装 #223
+- **effect**: Phase 1 - Runtime 共有機構の実装 #223
+- **effect**: AsyncIO オーバーヘッド削減 #223
+- **persistent**: Add fast hash features and optimize benchmarks #221
+- **persistent**: PersistentHashMap/HashSet パフォーマンス最適化 #221
+- **control**: Optimize Freer monad with SmallVec-based continuation storage
+- **persistent**: Phase 8 - TransientVector push_tail_to_root でムーブを使用
+- **persistent**: イテレータを O(N) に最適化
+- **persistent**: Phase 9 - push_back_many 最適化と Extend 実装
+- **persistent**: Phase 8 - Iterator/FromIterator 最適化
+- **persistent**: Phase 7 - concat 最適化
+- **persistent**: Phase 4-6 - TransientVector tail を TailChunk へ変更
+- **persistent**: Phase 2-3 - PersistentVector tail を TailChunk へ変更
+- **effect**: Introduce Pure/Deferred pattern to State and Reader
+- **effect,persistent**: Reduce heap allocation frequency
+- **effect**: Implement AsyncIO Pure/Deferred optimization
+- Enable LTO and add smallvec dependency
+- **persistent**: Optimize PersistentTreeMap with CoW and SmallVec
+- **effect**: Add Pure early return optimization to all Handlers
+- **effect**: Add #[inline] to AsyncIO and ExceptT hot paths
+- **api**: Optimize benchmark responses and fix test data issues
+- **effect**: Add inline hints to Eff hot paths
+- **effect**: Optimize Writer Effect handler to eliminate O(n²) clone
+- **typeclass**: Improve Bifunctor benchmark accuracy
+- **control**: Optimize Freer monad with Reflection without Remorse
+- **control**: Add comprehensive Freer monad benchmarks
+- **control**: Implement Trampoline performance optimizations
+- **control**: Begin Trampoline performance optimization
+- **persistent**: Migrate PersistentTreeMap from Red-Black Tree to B-Tree
+- **control**: Add ConcurrentLazy benchmarks
+- **persistent**: Add concat benchmarks for PersistentVector
+- **persistent**: Optimize tree_height to O(1) and implement rebalance_children
+- **persistent**: Implement true lazy evaluation iterators for HashMap and TreeMap
+- **persistent**: Redesign rayon benchmarks for CPU-intensive workloads
+- **persistent**: Add rayon parallel iteration benchmarks
+- **persistent**: Add Transient data structures benchmarks
+- **serde**: Add benchmark for serde serialize/deserialize operations
+
+### Refactor
+
+- **bench**: Extract expected runner version as constant in pin test
+- **bench**: Simplify validate_profiling_artifacts.sh
+- **bench**: Simplify validate_profiling_artifacts.sh with nameref arrays
+- **persistent**: Simplify Phase7 code and fix Codex review findings
+- **persistent**: Simplify Phase6 code and fix Codex review findings
+- **persistent**: Simplify Phase5 code and fix Codex review findings
+- **persistent**: Simplify Phase4 add-only materialization code
+- **persistent**: Simplify Phase3-A/B streaming merge code
+- **effect**: Remove deprecated run_async method and use direct await
+- **benches**: Add multi-size IAI benchmarks for PersistentVector regression detection
+- **benches**: Pre-generate Vec in bulk construction benchmarks for reuse
+- **bench**: Simplify cache implementation code
+- **compose**: Remove Japanese comments and REQ references from code
+- **persistent**: Phase 2 - Node enum 再定義
+- **persistent**: Simplify PersistentTreeMap implementation
+- **api**: Remove phase2_ prefix from benchmark scripts
+- **control**: Remove unproven Trampoline API methods
+- **persistent**: Address FP review feedback for concat
+- **compose**: Rename pipe_io! to pipe_async! for clarity
+- **persistent**: Simplify lazy iterator implementation
+- **effect**: Reduce type complexity in StateT/ReaderT async methods
+- **derive**: Remove redundant comment in test module
+- **persistent**: Address PR review comments for serde support
+- **persistent**: Rename leaf_from_rc to leaf_from_reference_counter
+- **persistent**: Simplify thread-safe implementation code
+- **persistent**: Rename function parameter to transform/filter_transform
+- **typeclass**: Simplify code and update documentation
+- **typeclass**: Remove redundant Result<B, E>: 'static constraints
+- **optics**: Simplify Optional documentation
+- **optics**: Remove redundant test comments
+- **optics**: Simplify compound optics documentation
+
+### Testing
+
+- **bench**: Add failing test for ubuntu-22.04 runner pin in profiling.yml
+- **bench**: Add failing tests for validate_profiling_artifacts.sh
+- **bench**: Add integration tests for env application (Phase 8)
+- **persistent**: Phase 10 - transient_update ベンチマークとプロパティテスト追加 #222
+- **persistent**: Phase 10 - concat プロパティテスト追加
+- **bench**: Add validation tests for Iai-Callgrind benchmarks
+- **typeclass**: Add Alternative benchmark suite
+- **optics**: Refactor compound optics tests with rstest
+- **optics**: Refactor Optional tests with rstest
+- **optics**: Add coverage tests for compound optics
+
+
