@@ -1,7 +1,7 @@
 #![deny(unsafe_code)]
 
 pub use lambars_verify_macros::{
-    boundary_cases, dual_verify, verification_case, VerificationModel,
+    VerificationModel, boundary_cases, dual_verify, verification_case,
 };
 
 /// Marker implemented by data models that participate in generated verification.
