@@ -136,7 +136,7 @@ pub trait Functor: TypeConstructor {
         Self: Sized,
         B: Clone + 'static,
     {
-        self.fmap(|_| value.clone())
+        self.fmap(move |_| value.clone())
     }
 
     /// Discards the value inside the functor, replacing it with `()`.
