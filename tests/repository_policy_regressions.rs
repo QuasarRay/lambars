@@ -16,6 +16,8 @@ const KANI_WORKFLOW: &str = include_str!("../.github/workflows/kani-verification
 const VERUS_WORKFLOW: &str = include_str!("../.github/workflows/verus-verification.yml");
 const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
 const DENY_POLICY: &str = include_str!("../deny.toml");
+const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release.yml");
+const QUALIFICATION: &str = include_str!("../verification/qualification.json");
 
 #[test]
 fn sc007_security_policy_describes_the_real_unsafe_boundary() {
@@ -110,4 +112,41 @@ fn sc036_dependency_policy_enforces_advisories_licenses_and_sources() {
 fn sc039_excluded_verifier_crates_are_explicitly_smoke_checked() {
     assert!(CI_WORKFLOW.contains("verification/kani/Cargo.toml"));
     assert!(CI_WORKFLOW.contains("working-directory: verification/verus"));
+}
+
+
+#[test]
+fn sc011_release_requires_source_tests_dependency_policy_and_both_formal_backends() {
+    assert!(RELEASE_WORKFLOW.contains("needs: [qualification, verify, kani, verus, build-evidence]"));
+    assert!(RELEASE_WORKFLOW.contains("cargo test --all-features --locked"));
+    assert!(RELEASE_WORKFLOW.contains("cargo audit --deny warnings"));
+    assert!(RELEASE_WORKFLOW.contains("Release Kani proofs"));
+    assert!(RELEASE_WORKFLOW.contains("Release Verus proofs"));
+}
+
+#[test]
+fn sc022_release_checks_explicit_package_surface() {
+    assert!(ROOT_MANIFEST.contains("include = ["));
+    assert!(DERIVE_MANIFEST.contains("include = ["));
+    assert!(RELEASE_WORKFLOW.contains("check_package_contents.py"));
+}
+
+#[test]
+fn sc038_release_emits_reproducibility_hash_sbom_and_attestation_evidence() {
+    assert!(RELEASE_WORKFLOW.contains("package-pass-1.sha256"));
+    assert!(RELEASE_WORKFLOW.contains("package-pass-2.sha256"));
+    assert!(RELEASE_WORKFLOW.contains("diff -u"));
+    assert!(RELEASE_WORKFLOW.contains("cargo-cyclonedx --version 0.5.9"));
+    assert!(RELEASE_WORKFLOW.contains("sha256sum"));
+    assert!(RELEASE_WORKFLOW.contains("actions/attest@v4"));
+    assert!(RELEASE_WORKFLOW.contains("sbom-path: release-evidence/sbom.cdx.json"));
+}
+
+#[test]
+fn sc040_release_is_fail_closed_on_complete_machine_readable_inventory() {
+    for index in 1..=40 {
+        let id = format!("SC-{index:03}");
+        assert!(QUALIFICATION.contains(&id), "missing {id}");
+    }
+    assert!(RELEASE_WORKFLOW.contains("check_qualification.py"));
 }
