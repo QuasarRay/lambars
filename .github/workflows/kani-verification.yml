@@ -1,0 +1,36 @@
+name: Kani verification
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "lambars-verification/**"
+      - "lambars-verify-macros/**"
+      - "verification/kani/**"
+      - "verification/tools/**"
+      - ".github/workflows/kani-verification.yml"
+
+jobs:
+  kani:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify Kani harnesses
+        uses: model-checking/kani-github-action@v1
+        with:
+          kani-version: "0.67.0"
+          command: "cargo-kani"
+          working-directory: "verification/kani"
+
+  repetition-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build structural repetition inventory
+        run: |
+          python verification/tools/find_repetition.py             src lambars-verification lambars-verify-macros verification/kani verification/verus             --json target/verification/repetition.json
+      - name: Upload repetition inventory
+        uses: actions/upload-artifact@v5
+        with:
+          name: verification-repetition-inventory
+          path: target/verification/repetition.json
