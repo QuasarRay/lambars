@@ -55,7 +55,8 @@ use std::iter::FromIterator;
 use super::ReferenceCounter;
 
 use crate::typeclass::{
-    Applicative, Foldable, Functor, FunctorMut, FunctorRef, Monad, Monoid, Semigroup, TypeConstructor,
+    Applicative, Foldable, Functor, FunctorMut, FunctorRef, Monad, Monoid, Semigroup,
+    TypeConstructor,
 };
 
 /// Internal node structure for the persistent list.
