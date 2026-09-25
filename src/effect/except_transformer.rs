@@ -379,12 +379,12 @@ where
     }
 
     /// Maps a function over the value inside the `ExceptT`.
-    pub fn fmap_io<B, F>(self, function: F) -> ExceptT<E, IO<Result<B, E>>>
+    pub fn fmap_io<B, F>(self, mut function: F) -> ExceptT<E, IO<Result<B, E>>>
     where
-        F: FnOnce(A) -> B + 'static,
+        F: FnMut(A) -> B + 'static,
         B: 'static,
     {
-        ExceptT::new(self.inner.fmap(move |result| result.map(function)))
+        ExceptT::new(self.inner.fmap(move |result| result.map(&mut function)))
     }
 
     /// Chains `ExceptT` computations with IO.
