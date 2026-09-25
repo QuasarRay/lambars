@@ -451,7 +451,7 @@ mod conversion_tests {
         let async_io = AsyncIO::pure(42);
         let io = async_io.to_sync();
         let result = io.run_unsafe();
-        assert_eq!(result, 42);
+        assert_eq!(result, Ok(42));
     }
 
     #[rstest]
@@ -461,7 +461,7 @@ mod conversion_tests {
         let async_io = AsyncIO::pure("hello".to_string());
         let io = async_io.to_sync();
         let result = io.run_unsafe();
-        assert_eq!(result, "hello");
+        assert_eq!(result, Ok("hello".to_string()));
     }
 
     #[rstest]
@@ -473,7 +473,7 @@ mod conversion_tests {
         let async_io = io.to_async();
         let io_back = async_io.to_sync();
         let result = io_back.run_unsafe();
-        assert_eq!(result, original);
+        assert_eq!(result, Ok(original));
     }
 
     #[rstest]
@@ -497,7 +497,7 @@ mod conversion_tests {
 
         // Executed via run_unsafe
         let result = io.run_unsafe();
-        assert_eq!(result, 42);
+        assert_eq!(result, Ok(42));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 }
