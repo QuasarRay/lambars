@@ -102,7 +102,12 @@ impl Parse for DelegateInput {
         input.parse::<Token![=>]>()?;
         let body = input.parse()?;
         input.parse::<Token![;]>()?;
-        Ok(Self { attrs, visibility, signature, body })
+        Ok(Self {
+            attrs,
+            visibility,
+            signature,
+            body,
+        })
     }
 }
 

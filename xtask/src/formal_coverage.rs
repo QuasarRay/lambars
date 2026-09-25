@@ -44,9 +44,13 @@ struct Entry {
 pub fn run(args: FormalCoverageArgs) -> anyhow::Result<()> {
     let bytes = fs::read(&args.coverage)
         .with_context(|| format!("failed to read {}", args.coverage.display()))?;
-    let coverage: Coverage = serde_json::from_slice(&bytes).context("failed to parse formal coverage ledger")?;
+    let coverage: Coverage =
+        serde_json::from_slice(&bytes).context("failed to parse formal coverage ledger")?;
     if coverage.schema_version != 1 {
-        bail!("unsupported formal coverage schema {}", coverage.schema_version);
+        bail!(
+            "unsupported formal coverage schema {}",
+            coverage.schema_version
+        );
     }
     if coverage.catalog_count != 2_533 || coverage.entries.len() != 2_533 {
         bail!("coverage ledger must contain exactly 2533 entries");
@@ -64,20 +68,54 @@ pub fn run(args: FormalCoverageArgs) -> anyhow::Result<()> {
         if !matches!(entry.kani.as_str(), "implementation_proved" | "pending") {
             bail!("invalid Kani status {} for {}", entry.kani, entry.name);
         }
-        if !matches!(entry.verus.as_str(), "model_proved" | "implementation_proved" | "pending") {
+        if !matches!(
+            entry.verus.as_str(),
+            "model_proved" | "implementation_proved" | "pending"
+        ) {
             bail!("invalid Verus status {} for {}", entry.verus, entry.name);
         }
-        if !matches!(entry.direct_verus_refinement.as_str(), "proved" | "pending" | "not_started") {
-            bail!("invalid Verus refinement status {} for {}", entry.direct_verus_refinement, entry.name);
+        if !matches!(
+            entry.direct_verus_refinement.as_str(),
+            "proved" | "pending" | "not_started"
+        ) {
+            bail!(
+                "invalid Verus refinement status {} for {}",
+                entry.direct_verus_refinement,
+                entry.name
+            );
         }
     }
 
-    let kani = coverage.entries.iter().filter(|e| e.kani == "implementation_proved").count();
-    let verus = coverage.entries.iter().filter(|e| e.verus == "model_proved" || e.verus == "implementation_proved").count();
-    let direct_verus = coverage.entries.iter().filter(|e| e.direct_verus_refinement == "proved").count();
-    let pending_kani = coverage.entries.iter().filter(|e| e.kani == "pending").count();
-    let pending_verus = coverage.entries.iter().filter(|e| e.verus == "pending").count();
-    let external = coverage.entries.iter().filter(|e| e.external_gate_required).count();
+    let kani = coverage
+        .entries
+        .iter()
+        .filter(|e| e.kani == "implementation_proved")
+        .count();
+    let verus = coverage
+        .entries
+        .iter()
+        .filter(|e| e.verus == "model_proved" || e.verus == "implementation_proved")
+        .count();
+    let direct_verus = coverage
+        .entries
+        .iter()
+        .filter(|e| e.direct_verus_refinement == "proved")
+        .count();
+    let pending_kani = coverage
+        .entries
+        .iter()
+        .filter(|e| e.kani == "pending")
+        .count();
+    let pending_verus = coverage
+        .entries
+        .iter()
+        .filter(|e| e.verus == "pending")
+        .count();
+    let external = coverage
+        .entries
+        .iter()
+        .filter(|e| e.external_gate_required)
+        .count();
 
     if kani != coverage.summary.kani_implementation_proved
         || verus != coverage.summary.verus_model_proved

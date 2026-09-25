@@ -6,12 +6,23 @@ use lambars_spec::{BackendSet, SPEC_COUNT, all_specs, find_spec, validate_catalo
 fn formal_catalog_contains_exactly_2533_unique_specifications() {
     assert_eq!(SPEC_COUNT, 2_533);
     assert_eq!(all_specs().len(), 2_533);
-    assert_eq!(all_specs().iter().map(|s| s.name).collect::<BTreeSet<_>>().len(), 2_533);
+    assert_eq!(
+        all_specs()
+            .iter()
+            .map(|s| s.name)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        2_533
+    );
 }
 
 #[test]
 fn every_formal_catalog_specification_requires_both_verus_and_kani_backends() {
-    assert!(all_specs().iter().all(|s| s.required_backends.contains(BackendSet::BOTH)));
+    assert!(
+        all_specs()
+            .iter()
+            .all(|s| s.required_backends.contains(BackendSet::BOTH))
+    );
 }
 
 #[test]

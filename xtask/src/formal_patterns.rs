@@ -68,9 +68,12 @@ pub fn run(args: FormalPatternsArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn scan_file(path: &Path, groups: &mut BTreeMap<u64, Vec<PatternOccurrence>>) -> anyhow::Result<()> {
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+fn scan_file(
+    path: &Path,
+    groups: &mut BTreeMap<u64, Vec<PatternOccurrence>>,
+) -> anyhow::Result<()> {
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let file = match syn::parse_file(&source) {
         Ok(file) => file,
         Err(_) => return Ok(()),
@@ -87,7 +90,12 @@ fn scan_items(
     for item in items {
         match item {
             syn::Item::Fn(function) => {
-                record_pattern(path, &function.sig.ident.to_string(), function.block.to_token_stream(), groups);
+                record_pattern(
+                    path,
+                    &function.sig.ident.to_string(),
+                    function.block.to_token_stream(),
+                    groups,
+                );
             }
             syn::Item::Impl(implementation) => {
                 for impl_item in &implementation.items {
@@ -132,10 +140,13 @@ fn record_pattern(
     groups: &mut BTreeMap<u64, Vec<PatternOccurrence>>,
 ) {
     let normalized = normalize_tokens(body);
-    groups.entry(fnv1a64(normalized.as_bytes())).or_default().push(PatternOccurrence {
-        path: path.display().to_string(),
-        function: function.to_owned(),
-    });
+    groups
+        .entry(fnv1a64(normalized.as_bytes()))
+        .or_default()
+        .push(PatternOccurrence {
+            path: path.display().to_string(),
+            function: function.to_owned(),
+        });
 }
 
 fn normalize_tokens(stream: TokenStream) -> String {
@@ -175,11 +186,43 @@ fn normalize_tokens(stream: TokenStream) -> String {
 fn is_rust_keyword(value: &str) -> bool {
     matches!(
         value,
-        "as" | "async" | "await" | "break" | "const" | "continue" | "crate" | "dyn"
-            | "else" | "enum" | "extern" | "false" | "fn" | "for" | "if" | "impl"
-            | "in" | "let" | "loop" | "match" | "mod" | "move" | "mut" | "pub"
-            | "ref" | "return" | "self" | "Self" | "static" | "struct" | "super"
-            | "trait" | "true" | "type" | "unsafe" | "use" | "where" | "while"
+        "as" | "async"
+            | "await"
+            | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "dyn"
+            | "else"
+            | "enum"
+            | "extern"
+            | "false"
+            | "fn"
+            | "for"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "type"
+            | "unsafe"
+            | "use"
+            | "where"
+            | "while"
     )
 }
 
