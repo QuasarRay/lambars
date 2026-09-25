@@ -18,6 +18,7 @@ const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
 const DENY_POLICY: &str = include_str!("../deny.toml");
 const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release.yml");
 const QUALIFICATION: &str = include_str!("../verification/qualification.json");
+const SAFETY_ANALYSIS_WORKFLOW: &str = include_str!("../.github/workflows/safety-analysis.yml");
 const ASYNC_RUNTIME_SOURCE: &str = include_str!("../src/effect/async_io/runtime.rs");
 const CODEOWNERS: &str = include_str!("../.github/CODEOWNERS");
 const GOVERNANCE: &str = include_str!("../GOVERNANCE.md");
@@ -208,4 +209,21 @@ fn sc027_async_runtime_public_bridge_is_fail_closed_not_expect_based() {
     assert!(!ASYNC_RUNTIME_SOURCE.contains(
         "try_run_blocking(future).expect(\"run_blocking failed\")"
     ));
+}
+
+
+#[test]
+fn sc013_dynamic_and_static_security_analysis_are_ci_gated() {
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("AddressSanitizer"));
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("-Zsanitizer=address"));
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("cargo +nightly-2026-09-01 fuzz run"));
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2"));
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("queries: security-extended"));
+}
+
+#[test]
+fn sc014_architecture_matrix_includes_64_and_32_bit_nonhost_targets() {
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("aarch64-unknown-linux-gnu"));
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("i686-unknown-linux-gnu"));
+    assert!(SAFETY_ANALYSIS_WORKFLOW.contains("cargo +1.92.0 check --all-features --lib --tests --locked --target"));
 }
