@@ -1,0 +1,13 @@
+# Safety-critical repository ownership
+# All changes require review by the repository maintainer; safety/formal/release
+# changes are additionally gated by the qualification workflows.
+* @QuasarRay
+
+/src/ @QuasarRay
+/lambars-derive/ @QuasarRay
+/verification/ @QuasarRay
+/.github/workflows/ @QuasarRay
+/Cargo.toml @QuasarRay
+/Cargo.lock @QuasarRay
+/SECURITY.md @QuasarRay
+/GOVERNANCE.md @QuasarRay
