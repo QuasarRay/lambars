@@ -5,7 +5,7 @@
 //! organized by TDD cycles.
 
 use lambars::persistent::PersistentVector;
-use lambars::typeclass::{Foldable, FunctorMut, TypeConstructor};
+use lambars::typeclass::{Foldable, FunctorMut, FunctorRef, TypeConstructor};
 use rstest::rstest;
 
 // =============================================================================
