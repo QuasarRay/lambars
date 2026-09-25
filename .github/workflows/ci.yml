@@ -114,7 +114,7 @@ jobs:
         run: rustup toolchain install nightly-2025-12-15 --profile minimal --component miri
       - name: Run Miri on control subsystem
         env:
-          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check"
+          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation"
         run: cargo +nightly-2025-12-15 miri test --lib --features control
 
   dependency-policy:
