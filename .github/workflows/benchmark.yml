@@ -39,7 +39,7 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
+          sudo apt-get update
           sudo apt-get install -y valgrind
 
       - name: Get iai-callgrind version
@@ -57,7 +57,7 @@ jobs:
       - name: Install iai-callgrind-runner
         run: |
           if ! command -v iai-callgrind-runner &> /dev/null; then
-            cargo install iai-callgrind-runner --version ${{ steps.iai-version.outputs.version }}
+            cargo install iai-callgrind-runner --version ${{ steps.iai-version.outputs.version }} --locked
           fi
 
       - name: Cache cargo registry and target
