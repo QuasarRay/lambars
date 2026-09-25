@@ -1,0 +1,41 @@
+name: Formal Verus
+
+on:
+  pull_request:
+    paths:
+      - "formal/lambars-verus/**"
+      - "formal/lambars-spec/**"
+      - "formal/specs/**"
+      - ".github/workflows/formal-verus.yml"
+  workflow_dispatch:
+
+env:
+  VERUS_VERSION: "0.2026.09.20.aef82ed"
+
+jobs:
+  verus:
+    name: Verus proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Verus Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.1"
+
+      - name: Install pinned Verus release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location \
+            --output /tmp/verus.zip \
+            "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
+          unzip -q /tmp/verus.zip -d /tmp
+          chmod +x /tmp/verus-x86-linux/verus /tmp/verus-x86-linux/cargo-verus
+          echo "/tmp/verus-x86-linux" >> "$GITHUB_PATH"
+
+      - name: Verify Verus backend
+        working-directory: formal/lambars-verus
+        run: cargo verus verify
