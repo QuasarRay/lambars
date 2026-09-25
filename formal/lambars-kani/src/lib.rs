@@ -50,6 +50,7 @@ pub const KANI_SEMANTIC_COVERAGE: &[&str] = &[
     "placeholder_constant_has_expected_zero_sized_marker_semantics",
     "compose_two_functions_applies_functions_right_to_left",
     "compose_three_functions_applies_functions_right_to_left",
+    "compose_many_functions_preserves_right_to_left_order",
     "compose_with_identity_on_left_matches_original_function",
     "compose_with_identity_on_right_matches_original_function",
     "compose_associativity_holds_for_pure_functions",
