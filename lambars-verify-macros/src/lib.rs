@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, DeriveInput, ItemFn, LitStr, Token};
+use syn::{DeriveInput, ItemFn, LitStr, Token, parse_macro_input};
 
 struct VerificationArgs {
     id: LitStr,
@@ -25,10 +25,7 @@ pub fn verification_case(args: TokenStream, input: TokenStream) -> TokenStream {
     let function = parse_macro_input!(input as ItemFn);
     let id = args.id;
     let name = &function.sig.ident;
-    let marker = format_ident!(
-        "__LAM_BARS_SPEC_ID_{}",
-        name.to_string().to_uppercase()
-    );
+    let marker = format_ident!("__LAM_BARS_SPEC_ID_{}", name.to_string().to_uppercase());
     quote! {
         #function
 
