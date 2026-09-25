@@ -83,7 +83,7 @@
 //! }
 //! ```
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::{RefCell, UnsafeCell};
 use std::fmt;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -126,23 +126,57 @@ impl WaitSync {
     }
 }
 
-// Thread-local flag to detect re-entrant initialization and prevent deadlock.
+// Thread-local stack of ConcurrentLazy instance identities currently being initialized.
+//
+// A stack (rather than a single boolean) is required because one lazy initializer may
+// legitimately force a *different* ConcurrentLazy on the same thread. Only revisiting
+// an instance already present in this stack is a re-entrant cycle.
 thread_local! {
-    static IN_CONCURRENT_LAZY_INIT: Cell<bool> = const { Cell::new(false) };
+    static CONCURRENT_LAZY_INIT_STACK: RefCell<Vec<usize>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// Returns a stable identity for this instance for the duration of a borrow.
+///
+/// The address is never dereferenced through this integer; it is used only for
+/// equality while the instance is alive.
+#[inline]
+fn concurrent_lazy_identity<T, F>(lazy: &ConcurrentLazy<T, F>) -> usize {
+    lazy as *const ConcurrentLazy<T, F> as usize
+}
+
+/// Shared predicate used by production re-entry detection and formal regression
+/// harnesses. Re-entry exists exactly when the same instance identity is active.
+#[doc(hidden)]
+#[inline]
+pub const fn concurrent_lazy_reentry_matches(active: usize, candidate: usize) -> bool {
+    active == candidate
 }
 
 /// RAII guard for panic safety during initialization (bracket pattern).
 ///
 /// On panic, sets `STATE_POISONED` under mutex and wakes all waiters.
-/// Always resets `IN_CONCURRENT_LAZY_INIT` regardless of outcome.
+/// Always removes this instance from `CONCURRENT_LAZY_INIT_STACK` regardless of outcome.
 struct InitializationDropGuard<'a, T, F> {
     concurrent_lazy: &'a ConcurrentLazy<T, F>,
+    initialization_identity: usize,
     completed: bool,
 }
 
 impl<T, F> Drop for InitializationDropGuard<'_, T, F> {
     fn drop(&mut self) {
-        IN_CONCURRENT_LAZY_INIT.with(|flag| flag.set(false));
+        CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            let popped = stack.pop();
+            debug_assert_eq!(
+                popped,
+                Some(self.initialization_identity),
+                "ConcurrentLazy initialization stack became unbalanced"
+            );
+            if popped != Some(self.initialization_identity) {
+                stack.retain(|identity| *identity != self.initialization_identity);
+            }
+        });
 
         if self.completed {
             return;
@@ -375,6 +409,16 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     }
                 }
                 STATE_COMPUTING => {
+                    let identity = concurrent_lazy_identity(self);
+                    let is_reentrant = CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+                        stack.borrow().iter().any(|active| {
+                            concurrent_lazy_reentry_matches(*active, identity)
+                        })
+                    });
+                    assert!(
+                        !is_reentrant,
+                        "ConcurrentLazy::force re-entrant initialization detected:                          force() revisited the same ConcurrentLazy instance on the                          initializing thread"
+                    );
                     self.wait_on_initialization();
                     state = self.state.load(Ordering::Acquire);
                 }
@@ -389,17 +433,22 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     ///
     /// Must only be called after successfully transitioning to `STATE_COMPUTING`.
     fn do_init(&self) -> &T {
-        IN_CONCURRENT_LAZY_INIT.with(|flag| {
+        let initialization_identity = concurrent_lazy_identity(self);
+        CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+            let mut stack = stack.borrow_mut();
             assert!(
-                !flag.replace(true),
+                !stack.iter().any(|active| {
+                    concurrent_lazy_reentry_matches(*active, initialization_identity)
+                }),
                 "ConcurrentLazy::force re-entrant initialization detected: \
-                 force() was called from within the initializer on the same thread. \
-                 This would cause a deadlock."
+                 the same ConcurrentLazy instance is already being initialized on this thread"
             );
+            stack.push(initialization_identity);
         });
 
         let mut guard = InitializationDropGuard {
             concurrent_lazy: self,
+            initialization_identity,
             completed: false,
         };
 
@@ -460,7 +509,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     ///    indefinite blocking until state transitions away from `STATE_COMPUTING`
     ///
     /// Re-entrant initialization (which would cause deadlock) is already detected
-    /// by the `IN_CONCURRENT_LAZY_INIT` thread-local flag in `do_init()`, so no
+    /// by the instance-aware `CONCURRENT_LAZY_INIT_STACK` before blocking, so no
     /// timeout-based deadlock detection is needed here.
     fn spin_then_wait(&self) {
         for iteration in 0..Self::ADAPTIVE_SPIN_LIMIT {
@@ -1233,17 +1282,45 @@ mod tests {
     }
 
     #[rstest]
-    fn test_reentrant_initialization_flag_mechanism() {
-        IN_CONCURRENT_LAZY_INIT.with(|flag| {
-            assert!(!flag.get());
-            flag.set(true);
-            assert!(flag.get());
-            flag.set(false);
-            assert!(!flag.get());
+    fn test_reentrant_initialization_stack_mechanism() {
+        CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+            assert!(stack.borrow().is_empty());
         });
 
         let lazy = ConcurrentLazy::new(|| 42);
         assert_eq!(*lazy.force(), 42);
+
+        CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+            assert!(stack.borrow().is_empty());
+        });
+    }
+
+    #[rstest]
+    fn test_nested_distinct_concurrent_lazy_initialization_succeeds() {
+        let inner = ConcurrentLazy::new(|| 41);
+        let outer = ConcurrentLazy::new(|| *inner.force() + 1);
+
+        assert_eq!(*outer.force(), 42);
+        assert_eq!(*inner.force(), 41);
+        assert!(!outer.is_poisoned());
+        assert!(!inner.is_poisoned());
+    }
+
+    #[rstest]
+    fn test_three_level_acyclic_nested_initialization_succeeds() {
+        let leaf = ConcurrentLazy::new(|| 40);
+        let middle = ConcurrentLazy::new(|| *leaf.force() + 1);
+        let root = ConcurrentLazy::new(|| *middle.force() + 1);
+
+        assert_eq!(*root.force(), 42);
+        assert_eq!(*middle.force(), 41);
+        assert_eq!(*leaf.force(), 40);
+    }
+
+    #[rstest]
+    fn test_reentry_identity_predicate_distinguishes_instances() {
+        assert!(concurrent_lazy_reentry_matches(7, 7));
+        assert!(!concurrent_lazy_reentry_matches(7, 8));
     }
 
     #[rstest]
