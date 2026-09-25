@@ -45,7 +45,7 @@ jobs:
       - name: Get iai-callgrind version
         id: iai-version
         run: |
-          IAI_VERSION=$(grep -A1 'name = "iai-callgrind"' Cargo.lock | grep version | head -1 | sed 's/.*"\(.*\)"/\1/')
+          IAI_VERSION=$(sed -n 's/^iai-callgrind = "=\([^"]*\)"/\1/p' benches/iai/Cargo.toml)
           echo "version=$IAI_VERSION" >> $GITHUB_OUTPUT
 
       - name: Cache cargo bin
@@ -75,10 +75,10 @@ jobs:
       - name: Run Iai-Callgrind benchmarks
         run: |
           set -eo pipefail
-          cargo bench --bench persistent_vector_iai -- --save-baseline=main 2>&1 | tee benchmark_output.txt
-          cargo bench --bench effect_iai -- --save-baseline=main 2>&1 | tee -a benchmark_output.txt
-          cargo bench --bench scenario_iai -- --save-baseline=main 2>&1 | tee -a benchmark_output.txt
-          cargo bench --bench ordered_unique_set_iai -- --save-baseline=main 2>&1 | tee -a benchmark_output.txt
+          cargo bench --manifest-path benches/iai/Cargo.toml --bench persistent_vector_iai -- --save-baseline=main 2>&1 | tee benchmark_output.txt
+          cargo bench --manifest-path benches/iai/Cargo.toml --bench effect_iai -- --save-baseline=main 2>&1 | tee -a benchmark_output.txt
+          cargo bench --manifest-path benches/iai/Cargo.toml --bench scenario_iai -- --save-baseline=main 2>&1 | tee -a benchmark_output.txt
+          cargo bench --manifest-path benches/iai/Cargo.toml --bench ordered_unique_set_iai -- --save-baseline=main 2>&1 | tee -a benchmark_output.txt
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
