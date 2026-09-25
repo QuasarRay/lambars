@@ -412,4 +412,61 @@ pub proof fn sc040_unresolved_blocks_release(closed: Seq<bool>)
     unresolved_finding_blocks_release(closed, 39);
 }
 
+
+/// SC-028 model for the production bounded-wait classifier.
+/// 0=ready, 1=empty, 2=computing, 3=poisoned.
+/// Result: 0=ready, 1=not-started, 2=wait, 3=poisoned, 4=reentrant, 5=timed-out, 6=invalid.
+pub open spec fn concurrent_lazy_wait_decision_model(
+    state: int,
+    reentrant: bool,
+    timed_out: bool,
+) -> int {
+    if state == 1 && reentrant { 4 }
+    else if state == 1 && timed_out { 5 }
+    else if state == 1 { 2 }
+    else if state == 2 { 0 }
+    else if state == 0 { 1 }
+    else if state == 3 { 3 }
+    else { 6 }
+}
+
+pub open spec fn concurrent_lazy_wait_decision_for_mode_model(
+    state: int,
+    reentrant: bool,
+    timed_out: bool,
+    execution_mode: int,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        concurrent_lazy_wait_decision_model(state, reentrant, timed_out)
+    } else {
+        6
+    }
+}
+
+pub proof fn sc028_expired_computing_wait_is_terminal(reentrant: bool)
+    ensures
+        concurrent_lazy_wait_decision_model(1, reentrant, true) != 2,
+{
+}
+
+pub proof fn sc028_terminal_states_never_continue_waiting(state: int, reentrant: bool, timed_out: bool)
+    requires state == 0 || state == 2 || state == 3
+    ensures concurrent_lazy_wait_decision_model(state, reentrant, timed_out) != 2
+{
+}
+
+pub proof fn sc028_execution_mode_does_not_change_classification(
+    state: int,
+    reentrant: bool,
+    timed_out: bool,
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        concurrent_lazy_wait_decision_for_mode_model(
+            state, reentrant, timed_out, execution_mode
+        ) == concurrent_lazy_wait_decision_model(state, reentrant, timed_out),
+{
+}
+
 } // verus!

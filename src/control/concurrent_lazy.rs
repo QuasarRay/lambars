@@ -48,8 +48,9 @@
 //! # Initialization Function Constraints
 //!
 //! The initialization function passed to `ConcurrentLazy::new` should complete in a
-//! bounded amount of time. While `force()` and `try_force()` will wait indefinitely
-//! for initialization to complete, a long-running or non-terminating initialization
+//! bounded amount of time. `force()` and `try_force()` may wait indefinitely;
+//! `wait_for()` provides an explicit bounded alternative for initialization already in progress.
+//! A long-running or non-terminating initialization
 //! function will block all threads that call `force()` or `try_force()`.
 //!
 //! **Recommendations:**
@@ -213,6 +214,68 @@ impl fmt::Display for ConcurrentLazyPoisonedError {
 }
 
 impl std::error::Error for ConcurrentLazyPoisonedError {}
+
+/// Error returned by bounded ConcurrentLazy waiting operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConcurrentLazyWaitError {
+    /// Initialization has not started; bounded waiting never starts it implicitly.
+    NotStarted,
+    /// Initialization previously panicked.
+    Poisoned,
+    /// The same ConcurrentLazy is already being initialized on this thread.
+    Reentrant,
+    /// The requested wait bound elapsed while another thread was still initializing.
+    TimedOut,
+    /// An async blocking worker failed before returning a result.
+    AsyncWorkerFailed,
+}
+
+impl fmt::Display for ConcurrentLazyWaitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotStarted => write!(formatter, "ConcurrentLazy initialization has not started"),
+            Self::Poisoned => write!(formatter, "ConcurrentLazy instance is poisoned"),
+            Self::Reentrant => write!(formatter, "ConcurrentLazy re-entrant wait detected"),
+            Self::TimedOut => write!(formatter, "ConcurrentLazy bounded wait timed out"),
+            Self::AsyncWorkerFailed => write!(formatter, "ConcurrentLazy async wait worker failed"),
+        }
+    }
+}
+
+impl std::error::Error for ConcurrentLazyWaitError {}
+
+/// Decision states shared by the production bounded waiter and formal regressions.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ConcurrentLazyWaitDecision {
+    Ready = 0,
+    NotStarted = 1,
+    Wait = 2,
+    Poisoned = 3,
+    Reentrant = 4,
+    TimedOut = 5,
+    Invalid = 6,
+}
+
+/// Pure classifier for bounded-wait control flow.
+#[doc(hidden)]
+#[must_use]
+pub const fn concurrent_lazy_wait_decision(
+    state: u8,
+    reentrant: bool,
+    timed_out: bool,
+) -> ConcurrentLazyWaitDecision {
+    match state {
+        STATE_READY => ConcurrentLazyWaitDecision::Ready,
+        STATE_EMPTY => ConcurrentLazyWaitDecision::NotStarted,
+        STATE_POISONED => ConcurrentLazyWaitDecision::Poisoned,
+        STATE_COMPUTING if reentrant => ConcurrentLazyWaitDecision::Reentrant,
+        STATE_COMPUTING if timed_out => ConcurrentLazyWaitDecision::TimedOut,
+        STATE_COMPUTING => ConcurrentLazyWaitDecision::Wait,
+        _ => ConcurrentLazyWaitDecision::Invalid,
+    }
+}
 
 /// A thread-safe lazily evaluated value with memoization.
 ///
@@ -761,6 +824,123 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// let _ = catch_unwind(std::panic::AssertUnwindSafe(|| poisoned.force()));
     /// assert!(poisoned.try_force().is_err());
     /// ```
+    /// Waits for an initialization already in progress for at most `timeout`.
+    ///
+    /// This method is liveness-bounded with respect to waiting on *another thread*:
+    /// it never starts an initializer itself. If the value is still empty, it
+    /// returns `NotStarted`; if another thread is computing, it waits until the
+    /// state becomes ready/poisoned or the timeout expires.
+    ///
+    /// This is the safety-critical alternative to unbounded waiting when callers
+    /// have an external deadline.
+    pub fn wait_for(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<&T, ConcurrentLazyWaitError> {
+        let start = std::time::Instant::now();
+        let mut state = self.state.load(Ordering::Acquire);
+
+        loop {
+            let identity = concurrent_lazy_identity(self);
+            let reentrant = state == STATE_COMPUTING
+                && CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+                    stack
+                        .borrow()
+                        .iter()
+                        .any(|active| concurrent_lazy_reentry_matches(*active, identity))
+                });
+            let timed_out = start.elapsed() >= timeout;
+
+            match concurrent_lazy_wait_decision(state, reentrant, timed_out) {
+                ConcurrentLazyWaitDecision::Ready => {
+                    // SAFETY: STATE_READY is published with Release after value.write();
+                    // this Acquire load observes the initialized value.
+                    return Ok(unsafe { (*self.value.get()).assume_init_ref() });
+                }
+                ConcurrentLazyWaitDecision::NotStarted => {
+                    return Err(ConcurrentLazyWaitError::NotStarted);
+                }
+                ConcurrentLazyWaitDecision::Poisoned => {
+                    return Err(ConcurrentLazyWaitError::Poisoned);
+                }
+                ConcurrentLazyWaitDecision::Reentrant => {
+                    return Err(ConcurrentLazyWaitError::Reentrant);
+                }
+                ConcurrentLazyWaitDecision::TimedOut => {
+                    return Err(ConcurrentLazyWaitError::TimedOut);
+                }
+                ConcurrentLazyWaitDecision::Invalid => {
+                    unreachable!("Invalid ConcurrentLazy state");
+                }
+                ConcurrentLazyWaitDecision::Wait => {}
+            }
+
+            for iteration in 0..Self::ADAPTIVE_SPIN_LIMIT {
+                state = self.state.load(Ordering::Acquire);
+                if state != STATE_COMPUTING {
+                    break;
+                }
+                if start.elapsed() >= timeout {
+                    return Err(ConcurrentLazyWaitError::TimedOut);
+                }
+                std::hint::spin_loop();
+                if iteration >= Self::SPIN_BEFORE_YIELD {
+                    std::thread::yield_now();
+                }
+            }
+
+            if state != STATE_COMPUTING {
+                continue;
+            }
+
+            let elapsed = start.elapsed();
+            let Some(remaining) = timeout.checked_sub(elapsed) else {
+                return Err(ConcurrentLazyWaitError::TimedOut);
+            };
+            if remaining.is_zero() {
+                return Err(ConcurrentLazyWaitError::TimedOut);
+            }
+
+            let mut guard = self.wait_sync.0.mutex.lock();
+            while self.state.load(Ordering::Acquire) == STATE_COMPUTING {
+                let elapsed = start.elapsed();
+                let Some(remaining) = timeout.checked_sub(elapsed) else {
+                    return Err(ConcurrentLazyWaitError::TimedOut);
+                };
+                if remaining.is_zero() {
+                    return Err(ConcurrentLazyWaitError::TimedOut);
+                }
+
+                let wait = self.wait_sync.0.condvar.wait_for(&mut guard, remaining);
+                if wait.timed_out()
+                    && self.state.load(Ordering::Acquire) == STATE_COMPUTING
+                {
+                    return Err(ConcurrentLazyWaitError::TimedOut);
+                }
+            }
+
+            state = self.state.load(Ordering::Acquire);
+        }
+    }
+
+    /// Async-safe bounded wait that does not block a Tokio worker thread.
+    ///
+    /// The value is cloned on success because the blocking worker cannot return
+    /// a reference tied to its moved `Arc`.
+    #[cfg(feature = "async")]
+    pub async fn wait_for_cloned_async(
+        self: std::sync::Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<T, ConcurrentLazyWaitError>
+    where
+        T: Clone + Send + Sync + 'static,
+        F: Send + 'static,
+    {
+        tokio::task::spawn_blocking(move || self.wait_for(timeout).cloned())
+            .await
+            .map_err(|_| ConcurrentLazyWaitError::AsyncWorkerFailed)?
+    }
+
     pub fn try_force(&self) -> Result<&T, ConcurrentLazyPoisonedError> {
         let mut state = self.state.load(Ordering::Acquire);
 
@@ -1404,6 +1584,140 @@ mod tests {
                 "Thread should have observed panic/poisoned state"
             );
         }
+    }
+
+    #[rstest]
+    fn test_wait_for_reports_not_started_without_running_initializer() {
+        let lazy = ConcurrentLazy::new(|| 42);
+        assert_eq!(
+            lazy.wait_for(std::time::Duration::from_millis(1)),
+            Err(ConcurrentLazyWaitError::NotStarted)
+        );
+        assert!(!lazy.is_initialized());
+    }
+
+    #[rstest]
+    fn test_wait_for_times_out_boundedly_while_other_thread_initializes() {
+        use std::sync::atomic::AtomicBool;
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = Arc::clone(&started);
+        let lazy = Arc::new(ConcurrentLazy::new(move || {
+            started_clone.store(true, AtomicOrdering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            42
+        }));
+
+        let init = Arc::clone(&lazy);
+        let handle = thread::spawn(move || *init.force());
+
+        while !started.load(AtomicOrdering::SeqCst) {
+            std::thread::yield_now();
+        }
+
+        let before = std::time::Instant::now();
+        assert_eq!(
+            lazy.wait_for(std::time::Duration::from_millis(5)),
+            Err(ConcurrentLazyWaitError::TimedOut)
+        );
+        assert!(before.elapsed() < std::time::Duration::from_millis(80));
+        assert_eq!(handle.join().unwrap(), 42);
+        assert_eq!(
+            lazy.wait_for(std::time::Duration::from_secs(1)),
+            Ok(&42)
+        );
+    }
+
+    #[rstest]
+    fn test_wait_for_concurrent_waiters_observe_ready_value() {
+        use std::sync::atomic::AtomicBool;
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = Arc::clone(&started);
+        let lazy = Arc::new(ConcurrentLazy::new(move || {
+            started_clone.store(true, AtomicOrdering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            42
+        }));
+        let init = Arc::clone(&lazy);
+        let init_handle = thread::spawn(move || *init.force());
+
+        while !started.load(AtomicOrdering::SeqCst) {
+            std::thread::yield_now();
+        }
+
+        let waiters: Vec<_> = (0..4)
+            .map(|_| {
+                let lazy = Arc::clone(&lazy);
+                thread::spawn(move || {
+                    lazy.wait_for(std::time::Duration::from_secs(1)).copied()
+                })
+            })
+            .collect();
+
+        for waiter in waiters {
+            assert_eq!(waiter.join().unwrap(), Ok(42));
+        }
+        assert_eq!(init_handle.join().unwrap(), 42);
+    }
+
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn test_wait_for_parallel_rayon_waiters_observe_ready_value() {
+        use std::sync::atomic::AtomicBool;
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = Arc::clone(&started);
+        let lazy = Arc::new(ConcurrentLazy::new(move || {
+            started_clone.store(true, AtomicOrdering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            42
+        }));
+
+        let init = Arc::clone(&lazy);
+        let init_handle = std::thread::spawn(move || *init.force());
+        while !started.load(AtomicOrdering::SeqCst) {
+            std::thread::yield_now();
+        }
+
+        let left = Arc::clone(&lazy);
+        let right = Arc::clone(&lazy);
+        let (a, b) = rayon::join(
+            || left.wait_for(std::time::Duration::from_secs(1)).copied(),
+            || right.wait_for(std::time::Duration::from_secs(1)).copied(),
+        );
+
+        assert_eq!(a, Ok(42));
+        assert_eq!(b, Ok(42));
+        assert_eq!(init_handle.join().unwrap(), 42);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_wait_for_cloned_async_observes_concurrent_initialization() {
+        use std::sync::atomic::AtomicBool;
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = Arc::clone(&started);
+        let lazy = Arc::new(ConcurrentLazy::new(move || {
+            started_clone.store(true, AtomicOrdering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            42
+        }));
+
+        let init = Arc::clone(&lazy);
+        let init_handle = std::thread::spawn(move || *init.force());
+        while !started.load(AtomicOrdering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            Arc::clone(&lazy)
+                .wait_for_cloned_async(std::time::Duration::from_secs(1))
+                .await,
+            Ok(42)
+        );
+        assert_eq!(init_handle.join().unwrap(), 42);
     }
 
     #[rstest]
