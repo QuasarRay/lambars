@@ -235,3 +235,69 @@ mod vec_functor_regressions {
         assert!(vec_fmap_preserves_all_elements(a, b, c));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod persistent_functor_regressions {
+    use lambars::persistent::{PersistentDeque, PersistentList, PersistentVector};
+    use lambars::typeclass::Functor;
+
+    fn list_maps_all(a: u8, b: u8, c: u8) -> bool {
+        let source: PersistentList<u8> = [a, b, c].into_iter().collect();
+        let mapped = source.fmap(|value| value.wrapping_add(1));
+        mapped.into_iter().collect::<Vec<_>>()
+            == vec![a.wrapping_add(1), b.wrapping_add(1), c.wrapping_add(1)]
+    }
+
+    fn vector_maps_all(a: u8, b: u8, c: u8) -> bool {
+        let source: PersistentVector<u8> = [a, b, c].into_iter().collect();
+        let mapped = source.fmap(|value| value.wrapping_add(1));
+        mapped.into_iter().collect::<Vec<_>>()
+            == vec![a.wrapping_add(1), b.wrapping_add(1), c.wrapping_add(1)]
+    }
+
+    fn deque_maps_all(a: u8, b: u8, c: u8) -> bool {
+        let source: PersistentDeque<u8> = [a, b, c].into_iter().collect();
+        let mapped = source.fmap(|value| value.wrapping_add(1));
+        mapped.into_iter().collect::<Vec<_>>()
+            == vec![a.wrapping_add(1), b.wrapping_add(1), c.wrapping_add(1)]
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn persistent_functors_preserve_every_element() {
+        assert!(list_maps_all(1, 2, 3));
+        assert!(vector_maps_all(1, 2, 3));
+        assert!(deque_maps_all(1, 2, 3));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    #[kani::unwind(32)]
+    fn persistent_list_functor_maps_all_symbolic_elements() {
+        let a: u8 = kani::any();
+        let b: u8 = kani::any();
+        let c: u8 = kani::any();
+        assert!(list_maps_all(a, b, c));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    #[kani::unwind(64)]
+    fn persistent_vector_functor_maps_all_symbolic_elements() {
+        let a: u8 = kani::any();
+        let b: u8 = kani::any();
+        let c: u8 = kani::any();
+        assert!(vector_maps_all(a, b, c));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    #[kani::unwind(32)]
+    fn persistent_deque_functor_maps_all_symbolic_elements() {
+        let a: u8 = kani::any();
+        let b: u8 = kani::any();
+        let c: u8 = kani::any();
+        assert!(deque_maps_all(a, b, c));
+    }
+}
