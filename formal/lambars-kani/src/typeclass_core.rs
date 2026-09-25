@@ -125,13 +125,13 @@ monoid_identity_and_empty_proofs!(
 kani_proof!(monoid_option_sum_i64_left_identity_law_holds, {
     let value: i64 = kani::any();
     let wrapped = Some(Sum::new(value));
-    assert_eq!(<Option<Sum<i64>>>::empty().combine(wrapped), wrapped);
+    assert_eq!(<Option<Sum<i64>> as Monoid>::empty().combine(wrapped), wrapped);
 });
 
 kani_proof!(monoid_option_sum_i64_right_identity_law_holds, {
     let value: i64 = kani::any();
     let wrapped = Some(Sum::new(value));
-    assert_eq!(wrapped.combine(<Option<Sum<i64>>>::empty()), wrapped);
+    assert_eq!(wrapped.combine(<Option<Sum<i64>> as Monoid>::empty()), wrapped);
 });
 
 kani_proof!(monoid_option_sum_i64_combine_all_empty_returns_identity, {
@@ -141,12 +141,12 @@ kani_proof!(monoid_option_sum_i64_combine_all_empty_returns_identity, {
 
 kani_proof!(alternative_option_left_identity_law_holds, {
     let value = symbolic_option_bool();
-    assert_eq!(<Option<()>>::empty::<bool>().alt(value), value);
+    assert_eq!(<Option<()> as Alternative>::empty::<bool>().alt(value), value);
 });
 
 kani_proof!(alternative_option_right_identity_law_holds, {
     let value = symbolic_option_bool();
-    assert_eq!(value.alt(<Option<()>>::empty::<bool>()), value);
+    assert_eq!(value.alt(<Option<()> as Alternative>::empty::<bool>()), value);
 });
 
 kani_proof!(alternative_option_associativity_law_holds, {
