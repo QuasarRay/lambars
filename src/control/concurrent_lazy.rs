@@ -411,9 +411,10 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                 STATE_COMPUTING => {
                     let identity = concurrent_lazy_identity(self);
                     let is_reentrant = CONCURRENT_LAZY_INIT_STACK.with(|stack| {
-                        stack.borrow().iter().any(|active| {
-                            concurrent_lazy_reentry_matches(*active, identity)
-                        })
+                        stack
+                            .borrow()
+                            .iter()
+                            .any(|active| concurrent_lazy_reentry_matches(*active, identity))
                     });
                     assert!(
                         !is_reentrant,
