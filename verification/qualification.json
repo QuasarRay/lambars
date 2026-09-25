@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "release_requires_status": "closed",
+    "note": "implemented/partial are not release-qualified; only closed findings pass the release gate"
+  },
+  "findings": [
+    {
+      "id": "SC-001",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-002",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-003",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-004",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-005",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-006",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-007",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-008",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-009",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-010",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-011",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-012",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-013",
+      "status": "partial",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-014",
+      "status": "partial",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-015",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-016",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-017",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-018",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-019",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-020",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-021",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-022",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-023",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-024",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-025",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-026",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-027",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-028",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-029",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-030",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-031",
+      "status": "partial",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-032",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-033",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-034",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-035",
+      "status": "partial",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-036",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-037",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-038",
+      "status": "open",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-039",
+      "status": "implemented",
+      "release_blocking": true
+    },
+    {
+      "id": "SC-040",
+      "status": "open",
+      "release_blocking": true
+    }
+  ]
+}

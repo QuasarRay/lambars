@@ -31,7 +31,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-008 | open | requires GitHub branch/ruleset configuration |
 | SC-009 | remediation in branch | safety/08-ci-assurance: exact Rust 1.92.0 gate |
 | SC-010 | open | requires full semantic coverage/refinement expansion |
-| SC-011 | open | planned release-gate layer |
+| SC-011 | remediation in branch | safety/09-release-provenance: publish needs qualification + tests + Kani + Verus + evidence |
 | SC-012 | open | planned supply-chain pinning layer |
 | SC-013 | partial remediation | safety/08-ci-assurance: Miri + cargo-audit + cargo-deny; sanitizer/fuzz/CodeQL still open |
 | SC-014 | partial remediation | safety/08-ci-assurance: Linux/macOS/Windows host matrix; architecture matrix still open |
@@ -42,7 +42,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-019 | remediation in branch | safety/06-release-assurance |
 | SC-020 | remediation in branch | safety/06-release-assurance |
 | SC-021 | open | planned governance layer |
-| SC-022 | open | planned package-content gate |
+| SC-022 | remediation in branch | safety/09-release-provenance: explicit package include + cargo package surface checker |
 | SC-023 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-024 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-025 | remediation in branch | safety/06-release-assurance |
@@ -58,9 +58,9 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-035 | partial remediation | safety/08-ci-assurance: CI-enforced unsafe boundary; root forbid/separate unsafe crate still open |
 | SC-036 | remediation in branch | safety/08-ci-assurance: RustSec + cargo-deny advisory/license/source policy |
 | SC-037 | open | benchmark/reproducibility pinning layer required |
-| SC-038 | open | SBOM/provenance/source-to-package equivalence layer required |
+| SC-038 | remediation in branch | safety/09-release-provenance: double-package hash comparison + SBOM + SHA256 + Sigstore attestation |
 | SC-039 | remediation in branch | safety/08-ci-assurance: excluded verifier crates are explicit CI smoke targets |
-| SC-040 | partial | this matrix exists; release must gate on machine-readable completion |
+| SC-040 | remediation in branch | safety/09-release-provenance: machine-readable 40-item fail-closed release gate |
 
 ## Concurrency / parallel / async rule
 

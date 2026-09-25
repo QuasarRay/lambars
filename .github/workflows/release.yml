@@ -7,35 +7,170 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  VERUS_VERSION: "0.2026.09.20.aef82ed"
+  SOURCE_DATE_EPOCH: ${{ github.event.repository.pushed_at }}
 
 jobs:
-  publish:
-    name: Publish to crates.io
+  qualification:
+    name: Safety qualification gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Require SC-001 through SC-040 closed
+        run: python verification/tools/check_qualification.py
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Verify version matches tag
+  verify:
+    name: Release source verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify tag versions
         run: |
-          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          ROOT_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="lambars") | .version')
+          DERIVE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="lambars-derive") | .version')
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "Version mismatch: Cargo.toml has $CARGO_VERSION but tag is $TAG_VERSION"
-            exit 1
-          fi
+          test "$ROOT_VERSION" = "$TAG_VERSION"
+          test "$DERIVE_VERSION" = "$TAG_VERSION"
+      - name: Format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-features --all-targets -- -D warnings
+      - name: Test all features
+        run: cargo test --all-features --locked
+      - name: Verify package surfaces
+        run: python verification/tools/check_package_contents.py
+      - name: Install pinned dependency policy tools
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo install cargo-deny --version 0.20.2 --locked
+      - name: Enforce dependency policy
+        run: |
+          cargo audit --deny warnings
+          cargo deny check
+      - name: Enforce unsafe boundary
+        run: python verification/tools/check_unsafe_boundary.py
 
-      - name: Run tests
-        run: cargo test --all-features
+  kani:
+    name: Release Kani proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: model-checking/kani-github-action@v1
+        with:
+          kani-version: "0.67.0"
+          command: "cargo-kani"
+          working-directory: "verification/kani"
 
-      - name: Publish to crates.io
-        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+  verus:
+    name: Release Verus proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.1"
+      - name: Install pinned Verus release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --output /tmp/verus.zip \
+            "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
+          unzip -q /tmp/verus.zip -d /tmp
+          chmod +x /tmp/verus-x86-linux/verus /tmp/verus-x86-linux/cargo-verus
+          echo "/tmp/verus-x86-linux" >> "$GITHUB_PATH"
+      - name: Verify Verus obligations
+        working-directory: verification/verus
+        run: cargo verus verify
+
+  build-evidence:
+    name: Build reproducible release evidence
+    needs: [qualification, verify, kani, verus]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Derive deterministic source epoch
+        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install pinned SBOM generator
+        run: cargo install cargo-cyclonedx --version 0.5.9 --locked
+
+      - name: Generate CycloneDX SBOM
+        run: cargo cyclonedx --format json --override-filename sbom.cdx.json
+
+      - name: Build release library
+        run: cargo build --release --all-features --locked
+
+      - name: Package public crates first pass
+        run: |
+          rm -rf target/package
+          cargo package -p lambars-derive --locked --no-verify
+          cargo package -p lambars --locked --no-verify
+          mkdir -p /tmp/package-pass-1
+          cp target/package/*.crate /tmp/package-pass-1/
+          (cd /tmp/package-pass-1 && sha256sum *.crate | sort) > /tmp/package-pass-1.sha256
+
+      - name: Package public crates second pass and compare
+        run: |
+          rm -rf target/package
+          cargo package -p lambars-derive --locked --no-verify
+          cargo package -p lambars --locked --no-verify
+          (cd target/package && sha256sum *.crate | sort) > /tmp/package-pass-2.sha256
+          diff -u /tmp/package-pass-1.sha256 /tmp/package-pass-2.sha256
+
+      - name: Record release evidence
+        run: |
+          mkdir -p release-evidence
+          cp target/package/*.crate release-evidence/
+          cp sbom.cdx.json release-evidence/
+          git rev-parse HEAD > release-evidence/source-commit.txt
+          rustc --version --verbose > release-evidence/rustc.txt
+          cargo --version --verbose > release-evidence/cargo.txt
+          cp verification/qualification.json release-evidence/
+          find target/release/deps -maxdepth 1 -type f -name 'liblambars*.rlib' -exec cp {} release-evidence/ \;
+          (cd release-evidence && sha256sum *.crate *.rlib sbom.cdx.json qualification.json | sort) > release.sha256
+          mv release.sha256 release-evidence/
+
+      - name: Attest build provenance and SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release-evidence/*.crate
+            release-evidence/*.rlib
+          sbom-path: release-evidence/sbom.cdx.json
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: release-evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Publish verified crates
+    needs: [qualification, verify, kani, verus, build-evidence]
+    runs-on: ubuntu-latest
+    environment: crates-io-release
+    steps:
+      - uses: actions/checkout@v6
+      - name: Publish derive crate first
+        run: cargo publish -p lambars-derive --locked --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+      - name: Publish root crate
+        run: cargo publish -p lambars --locked --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
   create-release:
-    name: Create GitHub Release
-    needs: publish
+    name: Create GitHub Release with evidence
+    needs: [publish, build-evidence]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -43,7 +178,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
+      - uses: actions/download-artifact@v6
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: release-evidence
       - name: Generate changelog for release
         id: git-cliff
         uses: orhun/git-cliff-action@v4
@@ -52,10 +190,11 @@ jobs:
           args: --latest --strip header
         env:
           GITHUB_REPO: ${{ github.repository }}
-
-      - name: Create Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.git-cliff.outputs.content }}
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+          files: |
+            release-evidence/*
