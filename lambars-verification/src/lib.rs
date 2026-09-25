@@ -1,6 +1,8 @@
 #![deny(unsafe_code)]
 
-pub use lambars_verify_macros::{dual_verify, verification_case, VerificationModel};
+pub use lambars_verify_macros::{
+    boundary_cases, dual_verify, verification_case, VerificationModel,
+};
 
 /// Marker implemented by data models that participate in generated verification.
 pub trait VerificationModel {
