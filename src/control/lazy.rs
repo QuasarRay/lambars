@@ -1150,11 +1150,17 @@ mod tests {
     // The panic message is still tested indirectly through the code coverage.
 
     #[rstest]
-    fn test_lazy_into_inner_panic_behavior() {
+    fn test_lazy_into_inner_initializer_panic_is_typed_error() {
         let lazy = Lazy::new(|| -> i32 { panic!("into_inner panic test") });
+        assert_eq!(lazy.into_inner(), Err(LazyPoisonedError));
+    }
 
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| lazy.into_inner()));
-        assert!(result.is_err());
+    #[rstest]
+    fn test_lazy_try_force_initializer_panic_is_typed_error() {
+        let lazy = Lazy::new(|| -> i32 { panic!("try_force panic test") });
+        assert_eq!(lazy.try_force(), Err(LazyPoisonedError));
+        assert!(lazy.is_poisoned());
+        assert_eq!(lazy.try_force(), Err(LazyPoisonedError));
     }
 
     // =========================================================================
