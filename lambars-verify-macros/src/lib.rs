@@ -167,6 +167,7 @@ pub fn boundary_cases(input: TokenStream) -> TokenStream {
 
             #[cfg(kani)]
             #[kani::proof]
+            #[kani::unwind(64)]
             fn #kani_name() {
                 assert!(#predicate(#value));
             }
