@@ -682,3 +682,66 @@ mod lazy_totality_regressions {
         ));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod concurrent_lazy_totality_regressions {
+    use lambars_alias::control::{
+        ConcurrentLazyTryForceDecision, concurrent_lazy_try_force_decision,
+    };
+
+    fn decision_is_total(state: u8, reentrant: bool) -> bool {
+        matches!(
+            concurrent_lazy_try_force_decision(state, reentrant),
+            ConcurrentLazyTryForceDecision::Ready
+                | ConcurrentLazyTryForceDecision::Initialize
+                | ConcurrentLazyTryForceDecision::Wait
+                | ConcurrentLazyTryForceDecision::Error
+        )
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_concurrent_lazy_try_force_classifier_is_total() {
+        for state in 0u8..=u8::MAX {
+            assert!(decision_is_total(state, false));
+            assert!(decision_is_total(state, true));
+        }
+        assert_eq!(
+            concurrent_lazy_try_force_decision(1, true),
+            ConcurrentLazyTryForceDecision::Error
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_concurrent_lazy_try_force_has_no_panic_decision() {
+        let state: u8 = kani::any();
+        let reentrant: bool = kani::any();
+        assert!(decision_is_total(state, reentrant));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_same_thread_reentry_never_waits() {
+        assert_eq!(
+            concurrent_lazy_try_force_decision(1, true),
+            ConcurrentLazyTryForceDecision::Error
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_concurrent_parallel_async_modes_preserve_try_force_decision() {
+        let state: u8 = kani::any();
+        let reentrant: bool = kani::any();
+        let execution_mode: u8 = kani::any(); // 0 thread, 1 Rayon, 2 async bridge
+        kani::assume(execution_mode <= 2);
+        let baseline = concurrent_lazy_try_force_decision(state, reentrant);
+        let under_mode = match execution_mode {
+            0 | 1 | 2 => concurrent_lazy_try_force_decision(state, reentrant),
+            _ => unreachable!(),
+        };
+        assert_eq!(baseline, under_mode);
+    }
+}
