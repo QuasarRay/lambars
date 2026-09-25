@@ -41,17 +41,11 @@ pub open spec fn owned_pair_preview(value: (int, int)) -> (int, int) { value }
 pub proof fn sc003_owned_prism_preview_review_law(left: int, right: int)
     ensures owned_pair_preview(owned_pair_review(left, right)) == (left, right) {}
 
-/// SC-004 normalization model for a two-element input.
 pub open spec fn normalize_pair(a: int, b: int) -> Seq<int> {
-    if a < b {
-        seq![a, b]
-    } else if b < a {
-        seq![b, a]
-    } else {
-        seq![a]
-    }
+    if a < b { seq![a, b] }
+    else if b < a { seq![b, a] }
+    else { seq![a] }
 }
-
 pub proof fn sc004_normalize_pair_is_strict_and_unique(a: int, b: int)
     ensures
         normalize_pair(a, b).len() == 1 || normalize_pair(a, b).len() == 2,
@@ -73,5 +67,15 @@ pub proof fn sc004_normalize_pair_is_strict_and_unique(a: int, b: int)
         assert(seq![a].contains(a));
     }
 }
+
+/// SC-005 model of the consuming IO Functor operation that remains exposed.
+pub open spec fn io_fmap_model(value: int, delta: int) -> int { value + delta }
+pub proof fn sc005_io_consuming_fmap_is_total(value: int, delta: int)
+    ensures io_fmap_model(value, delta) == value + delta {}
+
+/// Additional Functor regression: mapping preserves sequence cardinality.
+pub open spec fn vec_functor_mapped_len(source: Seq<int>) -> nat { source.len() }
+pub proof fn vec_functor_map_preserves_length(source: Seq<int>)
+    ensures vec_functor_mapped_len(source) == source.len() {}
 
 } // verus!

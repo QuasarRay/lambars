@@ -382,9 +382,9 @@ where
     }
 
     /// Maps a function over the value inside the IO.
-    pub fn fmap_io<B, F>(self, function: F) -> WriterT<W, IO<(B, W)>>
+    pub fn fmap_io<B, F>(self, mut function: F) -> WriterT<W, IO<(B, W)>>
     where
-        F: FnOnce(A) -> B + 'static,
+        F: FnMut(A) -> B + 'static,
         B: 'static,
     {
         WriterT::new(
@@ -402,7 +402,7 @@ where
         WriterT::new(self.inner.flat_map(move |(value, output1)| {
             let next = function(value);
             next.inner
-                .fmap(move |(result, output2)| (result, output1.combine(output2)))
+                .fmap(move |(result, output2)| (result, output1.clone().combine(output2)))
         }))
     }
 

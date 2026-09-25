@@ -104,35 +104,7 @@ pub trait Functor: TypeConstructor {
     /// ```
     fn fmap<B, F>(self, function: F) -> Self::WithType<B>
     where
-        F: FnOnce(Self::Inner) -> B + 'static,
-        B: 'static;
-
-    /// Applies a function to a reference of the value inside the functor.
-    ///
-    /// This method is useful when you want to transform the functor's contents
-    /// without consuming it, or when the inner type does not implement `Clone`.
-    ///
-    /// # Arguments
-    ///
-    /// * `function` - A function that takes a reference to the inner value
-    ///
-    /// # Returns
-    ///
-    /// A new functor with the transformed value(s)
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use lambars::typeclass::Functor;
-    ///
-    /// let x: Option<String> = Some("hello".to_string());
-    /// let y: Option<usize> = x.fmap_ref(|s| s.len());
-    /// assert_eq!(y, Some(5));
-    /// // x is still available here
-    /// ```
-    fn fmap_ref<B, F>(&self, function: F) -> Self::WithType<B>
-    where
-        F: FnOnce(&Self::Inner) -> B + 'static,
+        F: FnMut(Self::Inner) -> B + 'static,
         B: 'static;
 
     /// Replaces the value inside the functor with a constant value.
@@ -162,9 +134,9 @@ pub trait Functor: TypeConstructor {
     fn replace<B>(self, value: B) -> Self::WithType<B>
     where
         Self: Sized,
-        B: 'static,
+        B: Clone + 'static,
     {
-        self.fmap(|_| value)
+        self.fmap(move |_| value.clone())
     }
 
     /// Discards the value inside the functor, replacing it with `()`.
@@ -198,12 +170,36 @@ pub trait Functor: TypeConstructor {
     }
 }
 
+/// Capability trait for functors that can map over a borrowed inner value
+/// without consuming the functor.
+///
+/// This operation is intentionally separate from `Functor`: deferred
+/// single-shot effects such as `IO` can lawfully support consuming `fmap`
+/// but cannot provide a non-consuming borrowed map.
+pub trait FunctorRef: Functor {
+    /// Applies a function to a borrowed inner value without consuming `self`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use lambars::typeclass::FunctorRef;
+    ///
+    /// let x: Option<String> = Some("hello".to_string());
+    /// let y: Option<usize> = x.fmap_ref(|s| s.len());
+    /// assert_eq!(y, Some(5));
+    /// assert_eq!(x.as_deref(), Some("hello"));
+    /// ```
+    fn fmap_ref<B, F>(&self, function: F) -> Self::WithType<B>
+    where
+        F: FnMut(&Self::Inner) -> B + 'static,
+        B: 'static;
+}
+
 /// An extension of `Functor` for containers with multiple elements.
 ///
-/// While `Functor::fmap` takes a `FnOnce` (which can only be called once),
-/// containers like `Vec` need to apply the function to multiple elements.
-/// This trait provides `fmap_mut` which takes a `FnMut` that can be called
-/// multiple times.
+/// Compatibility extension for explicit mutable-function mapping.
+/// `Functor::fmap` itself now accepts `FnMut` and is lawful for multi-element
+/// containers; this trait remains as an explicit spelling for existing users.
 ///
 /// # Examples
 ///
@@ -265,15 +261,17 @@ impl<A> Functor for Option<A> {
     #[inline]
     fn fmap<B, F>(self, function: F) -> Option<B>
     where
-        F: FnOnce(A) -> B,
+        F: FnMut(A) -> B,
     {
         self.map(function)
     }
+}
 
+impl<A> FunctorRef for Option<A> {
     #[inline]
     fn fmap_ref<B, F>(&self, function: F) -> Option<B>
     where
-        F: FnOnce(&A) -> B,
+        F: FnMut(&A) -> B,
     {
         self.as_ref().map(function)
     }
@@ -287,15 +285,17 @@ impl<T, E: Clone> Functor for Result<T, E> {
     #[inline]
     fn fmap<B, F>(self, function: F) -> Result<B, E>
     where
-        F: FnOnce(T) -> B,
+        F: FnMut(T) -> B,
     {
         self.map(function)
     }
+}
 
+impl<T, E: Clone> FunctorRef for Result<T, E> {
     #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Result<B, E>
+    fn fmap_ref<B, F>(&self, mut function: F) -> Result<B, E>
     where
-        F: FnOnce(&T) -> B,
+        F: FnMut(&T) -> B,
     {
         match self {
             Ok(value) => Ok(function(value)),
@@ -309,42 +309,24 @@ impl<T, E: Clone> Functor for Result<T, E> {
 // =============================================================================
 
 impl<T> Functor for Vec<T> {
-    /// Maps a function over a single-element Vec.
-    ///
-    /// Note: For multi-element Vecs, use `fmap_mut` instead, as `FnOnce`
-    /// can only be called once. This implementation will only work correctly
-    /// for empty or single-element Vecs.
     #[inline]
     fn fmap<B, F>(self, function: F) -> Vec<B>
     where
-        F: FnOnce(T) -> B,
+        F: FnMut(T) -> B,
     {
-        // For single-element or empty Vec, FnOnce is sufficient
-        // For multi-element Vec, this will only transform the first element
-        // Users should use fmap_mut for proper multi-element transformation
-        let mut iter = self.into_iter();
-        iter.next().map_or_else(Vec::new, |first| {
-            let mut result = Vec::with_capacity(iter.len() + 1);
-            result.push(function(first));
-            // Note: remaining elements are dropped as FnOnce cannot be reused
-            result
-        })
-    }
-
-    #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Vec<B>
-    where
-        F: FnOnce(&T) -> B,
-    {
-        let mut iter = self.iter();
-        iter.next().map_or_else(Vec::new, |first| {
-            let mut result = Vec::with_capacity(self.len());
-            result.push(function(first));
-            result
-        })
+        self.into_iter().map(function).collect()
     }
 }
 
+impl<T> FunctorRef for Vec<T> {
+    #[inline]
+    fn fmap_ref<B, F>(&self, function: F) -> Vec<B>
+    where
+        F: FnMut(&T) -> B,
+    {
+        self.iter().map(function).collect()
+    }
+}
 impl<T> FunctorMut for Vec<T> {
     #[inline]
     fn fmap_mut<B, F>(self, function: F) -> Vec<B>
@@ -369,17 +351,19 @@ impl<T> FunctorMut for Vec<T> {
 
 impl<T> Functor for Box<T> {
     #[inline]
-    fn fmap<B, F>(self, function: F) -> Box<B>
+    fn fmap<B, F>(self, mut function: F) -> Box<B>
     where
-        F: FnOnce(T) -> B,
+        F: FnMut(T) -> B,
     {
         Box::new(function(*self))
     }
+}
 
+impl<T> FunctorRef for Box<T> {
     #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Box<B>
+    fn fmap_ref<B, F>(&self, mut function: F) -> Box<B>
     where
-        F: FnOnce(&T) -> B,
+        F: FnMut(&T) -> B,
     {
         Box::new(function(self.as_ref()))
     }
@@ -391,17 +375,19 @@ impl<T> Functor for Box<T> {
 
 impl<A> Functor for Identity<A> {
     #[inline]
-    fn fmap<B, F>(self, function: F) -> Identity<B>
+    fn fmap<B, F>(self, mut function: F) -> Identity<B>
     where
-        F: FnOnce(A) -> B,
+        F: FnMut(A) -> B,
     {
         Identity(function(self.0))
     }
+}
 
+impl<A> FunctorRef for Identity<A> {
     #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Identity<B>
+    fn fmap_ref<B, F>(&self, mut function: F) -> Identity<B>
     where
-        F: FnOnce(&A) -> B,
+        F: FnMut(&A) -> B,
     {
         Identity(function(&self.0))
     }

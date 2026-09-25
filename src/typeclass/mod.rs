@@ -4,6 +4,7 @@
 //! the foundation of functional programming in Rust:
 //!
 //! - [`Functor`]: Mapping over container values
+//! - [`FunctorRef`]: Non-consuming mapping over borrowed inner values
 //! - [`FunctorMut`]: Mapping with mutable functions for multi-element containers
 //! - [`Bifunctor`]: Mapping over two type parameters
 //! - [`Applicative`]: Applying functions within containers
@@ -122,7 +123,7 @@ pub use alternative::{Alternative, AlternativeVec};
 pub use applicative::{Applicative, ApplicativeVec};
 pub use bifunctor::Bifunctor;
 pub use foldable::Foldable;
-pub use functor::{Functor, FunctorMut};
+pub use functor::{Functor, FunctorMut, FunctorRef};
 pub use higher::TypeConstructor;
 pub use identity::Identity;
 pub use monad::{Flatten, Monad, MonadVec};

@@ -1178,7 +1178,7 @@ fn get_element_from_spine_node<T>(node: &SpineNode<T>, index: usize) -> Option<&
 }
 
 use crate::typeclass::{
-    Applicative, Foldable, Functor, FunctorMut, Monad, Monoid, Semigroup, TypeConstructor,
+    Applicative, Foldable, Functor, FunctorMut, FunctorRef, Monad, Monoid, Semigroup, TypeConstructor,
 };
 
 impl<T> TypeConstructor for PersistentDeque<T> {
@@ -1189,20 +1189,18 @@ impl<T> TypeConstructor for PersistentDeque<T> {
 impl<T: Clone> Functor for PersistentDeque<T> {
     fn fmap<B, F>(self, function: F) -> PersistentDeque<B>
     where
-        F: FnOnce(T) -> B,
+        F: FnMut(T) -> B,
     {
-        self.front().map_or_else(PersistentDeque::new, |front| {
-            PersistentDeque::singleton(function(front.clone()))
-        })
+        <Self as FunctorMut>::fmap_mut(self, function)
     }
+}
 
+impl<T: Clone> FunctorRef for PersistentDeque<T> {
     fn fmap_ref<B, F>(&self, function: F) -> PersistentDeque<B>
     where
-        F: FnOnce(&T) -> B,
+        F: FnMut(&T) -> B,
     {
-        self.front().map_or_else(PersistentDeque::new, |front| {
-            PersistentDeque::singleton(function(front))
-        })
+        <Self as FunctorMut>::fmap_ref_mut(self, function)
     }
 }
 
