@@ -165,7 +165,7 @@ macro_rules! applicative_option_like_proofs {
         $pure_name:ident,
         $context:ty,
         $pure_owner:ty,
-        $pure_expected:expr
+        $pure_expected:path
     ) => {
         kani_proof!($identity_name, {
             let value: bool = kani::any();
@@ -290,7 +290,7 @@ kani_proof!(monad_option_associativity_law_holds, {
 kani_proof!(monad_option_flatten_matches_flat_map_identity, {
     let input = option_option_bool();
     let flattened = <Option<Option<bool>> as Flatten>::flatten(input);
-    let flat_mapped = input.flat_map(bool_identity);
+    let flat_mapped = input.flat_map(|inner| inner);
     assert_eq!(flattened, flat_mapped);
 });
 
@@ -331,7 +331,7 @@ kani_proof!(monad_result_associativity_law_holds, {
 kani_proof!(monad_result_flatten_matches_flat_map_identity, {
     let input = result_result_bool();
     let flattened = <Result<Result<bool, bool>, bool> as Flatten>::flatten(input);
-    let flat_mapped = input.flat_map(bool_identity);
+    let flat_mapped = input.flat_map(|inner| inner);
     assert_eq!(flattened, flat_mapped);
 });
 
@@ -379,7 +379,7 @@ kani_proof!(monad_box_flatten_matches_flat_map_identity, {
     let value: bool = kani::any();
     let nested = Box::new(Box::new(value));
     let flattened = <Box<Box<bool>> as Flatten>::flatten(nested);
-    let flat_mapped = Box::new(Box::new(value)).flat_map(bool_identity);
+    let flat_mapped = Box::new(Box::new(value)).flat_map(|inner| inner);
     assert_eq!(*flattened, *flat_mapped);
 });
 
@@ -424,7 +424,7 @@ kani_proof!(monad_identity_associativity_law_holds, {
 kani_proof!(monad_identity_flatten_matches_flat_map_identity, {
     let value: bool = kani::any();
     let flattened = <Identity<Identity<bool>> as Flatten>::flatten(Identity::new(Identity::new(value)));
-    let flat_mapped = Identity::new(Identity::new(value)).flat_map(bool_identity);
+    let flat_mapped = Identity::new(Identity::new(value)).flat_map(|inner| inner);
     assert_eq!(flattened, flat_mapped);
 });
 
