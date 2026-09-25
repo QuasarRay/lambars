@@ -47,7 +47,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-024 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-025 | remediation in branch | safety/06-release-assurance |
 | SC-026 | open | planned panic/totality review layer |
-| SC-027 | open | planned runtime-fallibility layer |
+| SC-027 | remediation in branch | safety/13-runtime-fallibility: fallible global runtime/handle/blocking bridge + Kani/Verus total-outcome obligations |
 | SC-028 | open | planned bounded ConcurrentLazy API layer |
 | SC-029 | remediation in branch | safety/11-hash-hardening: insecure hashers retired; legacy flags are no-op; Kani/Verus keyed-mode invariants |
 | SC-030 | remediation in PR | #11 |
