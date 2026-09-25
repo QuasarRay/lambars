@@ -6,7 +6,10 @@ use lambars::typeclass::{
 
 use crate::kani_proof;
 
-use crate::symbolic::{either_bool as symbolic_either_bool, option_bool as symbolic_option_bool, result_bool as symbolic_result_bool};
+use crate::symbolic::{
+    either_bool as symbolic_either_bool, option_bool as symbolic_option_bool,
+    result_bool as symbolic_result_bool,
+};
 
 macro_rules! associative_ord_wrapper_proofs {
     (
