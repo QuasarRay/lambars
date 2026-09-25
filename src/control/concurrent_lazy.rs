@@ -486,11 +486,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     self.wait_on_initialization();
                     state = self.state.load(Ordering::Acquire);
                 }
-                _ => {
-                // SAFETY: Invalid state does not claim an initialized value.
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Err(ConcurrentLazyPoisonedError)
-            },
+                _ => unreachable!("Invalid state"),
             }
         }
     }
@@ -680,7 +676,11 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     }
                 }
             }
-            _ => unreachable!("Invalid state"),
+            _ => {
+                // SAFETY: Invalid state does not claim an initialized value.
+                unsafe { ManuallyDrop::drop(&mut this) };
+                Err(ConcurrentLazyPoisonedError)
+            }
         }
     }
 }
