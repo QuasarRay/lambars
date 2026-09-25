@@ -421,23 +421,36 @@ pub open spec fn concurrent_lazy_wait_decision_model(
     reentrant: bool,
     timed_out: bool,
 ) -> int {
-    if state == 2 && reentrant { 4 }
-    else if state == 2 && timed_out { 5 }
-    else if state == 2 { 2 }
+    if state == 1 && reentrant { 4 }
+    else if state == 1 && timed_out { 5 }
+    else if state == 1 { 2 }
+    else if state == 2 { 0 }
     else if state == 0 { 1 }
     else if state == 3 { 3 }
-    else if state == 1 { 0 }
     else { 6 }
+}
+
+pub open spec fn concurrent_lazy_wait_decision_for_mode_model(
+    state: int,
+    reentrant: bool,
+    timed_out: bool,
+    execution_mode: int,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        concurrent_lazy_wait_decision_model(state, reentrant, timed_out)
+    } else {
+        6
+    }
 }
 
 pub proof fn sc028_expired_computing_wait_is_terminal(reentrant: bool)
     ensures
-        concurrent_lazy_wait_decision_model(2, reentrant, true) != 2,
+        concurrent_lazy_wait_decision_model(1, reentrant, true) != 2,
 {
 }
 
 pub proof fn sc028_terminal_states_never_continue_waiting(state: int, reentrant: bool, timed_out: bool)
-    requires state == 0 || state == 1 || state == 3
+    requires state == 0 || state == 2 || state == 3
     ensures concurrent_lazy_wait_decision_model(state, reentrant, timed_out) != 2
 {
 }
@@ -450,8 +463,9 @@ pub proof fn sc028_execution_mode_does_not_change_classification(
 )
     requires 0 <= execution_mode <= 2
     ensures
-        concurrent_lazy_wait_decision_model(state, reentrant, timed_out)
-            == concurrent_lazy_wait_decision_model(state, reentrant, timed_out),
+        concurrent_lazy_wait_decision_for_mode_model(
+            state, reentrant, timed_out, execution_mode
+        ) == concurrent_lazy_wait_decision_model(state, reentrant, timed_out),
 {
 }
 
