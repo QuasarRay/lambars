@@ -469,4 +469,45 @@ pub proof fn sc028_execution_mode_does_not_change_classification(
 {
 }
 
+
+/// SC-027 model of the production runtime context classifier.
+/// 0=global, 1=multi-thread, 2=current-thread error, 3=unsupported error.
+pub open spec fn blocking_execution_decision_model(context: int) -> int {
+    if context == 0 { 0 }
+    else if context == 1 { 1 }
+    else if context == 2 { 2 }
+    else { 3 }
+}
+
+pub open spec fn blocking_execution_decision_for_mode_model(
+    context: int,
+    execution_mode: int,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        blocking_execution_decision_model(context)
+    } else {
+        3
+    }
+}
+
+pub proof fn sc027_rejected_runtime_context_never_becomes_runnable(context: int)
+    requires context >= 2
+    ensures blocking_execution_decision_model(context) == 2
+         || blocking_execution_decision_model(context) == 3
+{
+}
+
+pub proof fn sc027_execution_mode_preserves_runtime_rejection(
+    context: int,
+    execution_mode: int,
+)
+    requires
+        context >= 2,
+        0 <= execution_mode <= 2,
+    ensures
+        blocking_execution_decision_for_mode_model(context, execution_mode) == 2
+        || blocking_execution_decision_for_mode_model(context, execution_mode) == 3,
+{
+}
+
 } // verus!
