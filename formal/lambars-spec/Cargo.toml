@@ -1,0 +1,23 @@
+[package]
+name = "lambars-spec"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92.0"
+publish = false
+description = "Machine-readable formal specification registry for lambars"
+license = "MIT OR Apache-2.0"
+build = "build.rs"
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
