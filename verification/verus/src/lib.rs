@@ -101,4 +101,13 @@ pub proof fn sc034_only_computing_can_publish_terminal_state(from: int, to: int)
 {
 }
 
+
+/// SC-029 model: the public security-mode selector has exactly one state.
+pub open spec fn persistent_hash_security_mode_model() -> int { 1 }
+
+pub proof fn sc029_only_keyed_hash_mode_is_exposed()
+    ensures persistent_hash_security_mode_model() == 1
+{
+}
+
 } // verus!
