@@ -67,12 +67,12 @@
     },
     {
       "id": "SC-013",
-      "status": "partial",
+      "status": "implemented",
       "release_blocking": true
     },
     {
       "id": "SC-014",
-      "status": "partial",
+      "status": "implemented",
       "release_blocking": true
     },
     {

@@ -1,0 +1,19 @@
+[package]
+name = "lambars-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lambars = { path = "..", features = ["full", "arc", "rayon"] }
+
+[[bin]]
+name = "persistent_collections"
+path = "fuzz_targets/persistent_collections.rs"
+test = false
+doc = false
+bench = false
