@@ -8,6 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERUS_VERSION: "0.2026.09.20.aef82ed"
+  VERUS_X86_LINUX_SHA256: "7b870fa12bc589015c2fab60a8b3d9f07c7b1adb3444eb0fadffcbf7f0447b33"
   SOURCE_DATE_EPOCH: ${{ github.event.repository.pushed_at }}
 
 jobs:
@@ -78,6 +79,7 @@ jobs:
           set -euo pipefail
           curl --fail --location --output /tmp/verus.zip \
             "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
+          echo "${VERUS_X86_LINUX_SHA256}  /tmp/verus.zip" | sha256sum -c -
           unzip -q /tmp/verus.zip -d /tmp
           chmod +x /tmp/verus-x86-linux/verus /tmp/verus-x86-linux/cargo-verus
           echo "/tmp/verus-x86-linux" >> "$GITHUB_PATH"
