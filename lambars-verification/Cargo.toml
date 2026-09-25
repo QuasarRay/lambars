@@ -1,0 +1,12 @@
+[package]
+name = "lambars-verification"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+lambars-verify-macros = { path = "../lambars-verify-macros" }
+
+[lints.rust]
+unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(verus)'] }

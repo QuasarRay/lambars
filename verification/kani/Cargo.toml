@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "lambars-kani-verification"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+lambars = { path = "../..", features = ["serde", "arc"] }
+lambars-verification = { path = "../../lambars-verification" }
+
+[lints.rust]
+unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
