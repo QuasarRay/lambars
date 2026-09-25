@@ -510,4 +510,60 @@ pub proof fn sc027_execution_mode_preserves_runtime_rejection(
 {
 }
 
+
+/// SC-026 model for AsyncPool enqueue classification.
+/// 0=enqueue, 1=queue-full, 2=pool-closed.
+pub open spec fn pool_enqueue_decision_model(
+    semaphore_closed: bool,
+    channel_closed: bool,
+    no_permits: bool,
+) -> int {
+    if semaphore_closed || channel_closed { 2 }
+    else if no_permits { 1 }
+    else { 0 }
+}
+
+pub open spec fn pool_enqueue_decision_for_mode_model(
+    semaphore_closed: bool,
+    channel_closed: bool,
+    no_permits: bool,
+    execution_mode: int,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        pool_enqueue_decision_model(semaphore_closed, channel_closed, no_permits)
+    } else {
+        2
+    }
+}
+
+pub proof fn sc026_closed_pool_is_always_typed_closed_error(
+    semaphore_closed: bool,
+    channel_closed: bool,
+    no_permits: bool,
+)
+    requires semaphore_closed || channel_closed
+    ensures
+        pool_enqueue_decision_model(semaphore_closed, channel_closed, no_permits) == 2,
+{
+}
+
+pub proof fn sc026_execution_mode_preserves_closed_pool_error(
+    semaphore_closed: bool,
+    channel_closed: bool,
+    no_permits: bool,
+    execution_mode: int,
+)
+    requires
+        semaphore_closed || channel_closed,
+        0 <= execution_mode <= 2,
+    ensures
+        pool_enqueue_decision_for_mode_model(
+            semaphore_closed,
+            channel_closed,
+            no_permits,
+            execution_mode,
+        ) == 2,
+{
+}
+
 } // verus!

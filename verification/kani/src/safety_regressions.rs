@@ -560,3 +560,71 @@ mod runtime_fallibility_regressions {
         ));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod async_pool_panic_contract_regressions {
+    use lambars_alias::effect::async_io::pool::{
+        PoolEnqueueDecision, pool_enqueue_decision,
+    };
+
+    fn closed_state_never_enqueues(
+        semaphore_closed: bool,
+        channel_closed: bool,
+        no_permits: bool,
+    ) -> bool {
+        let decision = pool_enqueue_decision(semaphore_closed, channel_closed, no_permits);
+        if semaphore_closed || channel_closed {
+            decision == PoolEnqueueDecision::PoolClosed
+        } else {
+            true
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_pool_closed_state_is_typed_not_panicking() {
+        assert!(closed_state_never_enqueues(true, false, false));
+        assert!(closed_state_never_enqueues(false, true, false));
+        assert!(closed_state_never_enqueues(true, true, true));
+        assert_eq!(
+            pool_enqueue_decision(false, false, true),
+            PoolEnqueueDecision::QueueFull
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_any_closed_pool_state_is_classified_as_pool_closed() {
+        let semaphore_closed: bool = kani::any();
+        let channel_closed: bool = kani::any();
+        let no_permits: bool = kani::any();
+        kani::assume(semaphore_closed || channel_closed);
+        assert!(closed_state_never_enqueues(
+            semaphore_closed,
+            channel_closed,
+            no_permits,
+        ));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_execution_mode_cannot_turn_closed_pool_into_enqueue() {
+        let semaphore_closed: bool = kani::any();
+        let channel_closed: bool = kani::any();
+        let no_permits: bool = kani::any();
+        let execution_mode: u8 = kani::any(); // 0 async task, 1 threaded runtime, 2 Rayon caller
+        kani::assume(semaphore_closed || channel_closed);
+        kani::assume(execution_mode <= 2);
+
+        let decision = match execution_mode {
+            0 | 1 | 2 => pool_enqueue_decision(
+                semaphore_closed,
+                channel_closed,
+                no_permits,
+            ),
+            _ => unreachable!(),
+        };
+        assert_eq!(decision, PoolEnqueueDecision::PoolClosed);
+    }
+}

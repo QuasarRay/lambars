@@ -20,6 +20,8 @@ const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release.yml");
 const QUALIFICATION: &str = include_str!("../verification/qualification.json");
 const ROOT_LOCK: &str = include_str!("../Cargo.lock");
 const IAI_MANIFEST: &str = include_str!("../benches/iai/Cargo.toml");
+const PANIC_POLICY: &str = include_str!("../docs/safety/panic-policy.md");
+const ASYNC_POOL_SOURCE: &str = include_str!("../src/effect/async_io/pool.rs");
 const CODEOWNERS: &str = include_str!("../.github/CODEOWNERS");
 const GOVERNANCE: &str = include_str!("../GOVERNANCE.md");
 const MAINTAINERS: &str = include_str!("../MAINTAINERS.md");
@@ -222,4 +224,23 @@ fn sc037_profiler_dependencies_are_isolated_from_release_workspace() {
     assert!(ROOT_MANIFEST.contains("\"benches/iai\""));
     assert!(!ROOT_MANIFEST.contains("iai-callgrind ="));
     assert!(IAI_MANIFEST.contains("iai-callgrind = \"=0.16.1\""));
+}
+
+
+#[test]
+fn sc026_panic_contract_is_explicit_and_hidden_pool_panics_do_not_return() {
+    for required in [
+        "AsyncPool::spawn",
+        "ConcurrentLazy::force",
+        "Lazy::force",
+        "Freer::interpret",
+        "panic=abort",
+        "SC-026 remains release-blocking",
+    ] {
+        assert!(PANIC_POLICY.contains(required), "panic policy missing {required}");
+    }
+
+    assert!(!ASYNC_POOL_SOURCE.contains("expect(\"semaphore should not be closed\")"));
+    assert!(!ASYNC_POOL_SOURCE.contains("expect(\"channel should not be closed\")"));
+    assert!(ASYNC_POOL_SOURCE.contains("PoolError::PoolClosed"));
 }

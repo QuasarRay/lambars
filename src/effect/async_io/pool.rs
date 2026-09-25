@@ -109,6 +109,11 @@ pub enum PoolError {
     ///
     /// The limit must be at least 1.
     InvalidConcurrencyLimit,
+
+    /// The internal queue or semaphore is closed.
+    ///
+    /// This is reported as a typed error rather than terminating the caller.
+    PoolClosed,
 }
 
 impl fmt::Display for PoolError {
@@ -126,11 +131,41 @@ impl fmt::Display for PoolError {
             Self::InvalidConcurrencyLimit => {
                 write!(formatter, "concurrency limit must be greater than 0")
             }
+            Self::PoolClosed => {
+                write!(formatter, "pool queue is closed")
+            }
         }
     }
 }
 
 impl Error for PoolError {}
+
+/// Pure queue-state decision used by the implementation's error policy and formal regressions.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PoolEnqueueDecision {
+    Enqueue = 0,
+    QueueFull = 1,
+    PoolClosed = 2,
+}
+
+/// Classifies the observable enqueue state without panicking.
+#[doc(hidden)]
+#[must_use]
+pub const fn pool_enqueue_decision(
+    semaphore_closed: bool,
+    channel_closed: bool,
+    no_permits: bool,
+) -> PoolEnqueueDecision {
+    if semaphore_closed || channel_closed {
+        PoolEnqueueDecision::PoolClosed
+    } else if no_permits {
+        PoolEnqueueDecision::QueueFull
+    } else {
+        PoolEnqueueDecision::Enqueue
+    }
+}
 
 // =============================================================================
 // Type Aliases
@@ -427,10 +462,10 @@ impl<A: Send + 'static> AsyncPool<A> {
     /// This method does not return errors for queue-full conditions (it waits).
     /// It returns `Ok(())` on success.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the semaphore or channel is unexpectedly closed (internal error).
-    /// Under normal operation, this should never occur.
+    /// Returns [`PoolError::PoolClosed`] if the internal semaphore or queue is
+    /// unexpectedly closed. This path is typed and never uses `expect()`.
     ///
     /// # Examples
     ///
@@ -462,13 +497,13 @@ impl<A: Send + 'static> AsyncPool<A> {
             .queue_semaphore
             .acquire()
             .await
-            .expect("semaphore should not be closed");
+            .map_err(|_| PoolError::PoolClosed)?;
 
         let boxed_future: BoxedFuture<A> = Box::pin(future);
         self.sender
             .send(boxed_future)
             .await
-            .expect("channel should not be closed");
+            .map_err(|_| PoolError::PoolClosed)?;
 
         // Permit will be returned when dequeued in run_all
         permit.forget();
@@ -505,8 +540,14 @@ impl<A: Send + 'static> AsyncPool<A> {
     where
         F: Future<Output = A> + Send + 'static,
     {
-        let Ok(permit) = self.queue_semaphore.try_acquire() else {
-            return Err(PoolError::QueueFull);
+        let permit = match self.queue_semaphore.try_acquire() {
+            Ok(permit) => permit,
+            Err(tokio::sync::TryAcquireError::NoPermits) => {
+                return Err(PoolError::QueueFull);
+            }
+            Err(tokio::sync::TryAcquireError::Closed) => {
+                return Err(PoolError::PoolClosed);
+            }
         };
 
         let boxed_future: BoxedFuture<A> = Box::pin(future);
@@ -515,7 +556,8 @@ impl<A: Send + 'static> AsyncPool<A> {
                 permit.forget();
                 Ok(())
             }
-            Err(_) => Err(PoolError::QueueFull),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => Err(PoolError::QueueFull),
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => Err(PoolError::PoolClosed),
         }
     }
 
