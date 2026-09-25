@@ -141,7 +141,7 @@ fn sc038_release_emits_reproducibility_hash_sbom_and_attestation_evidence() {
     assert!(RELEASE_WORKFLOW.contains("diff -u"));
     assert!(RELEASE_WORKFLOW.contains("cargo-cyclonedx --version 0.5.9"));
     assert!(RELEASE_WORKFLOW.contains("sha256sum"));
-    assert!(RELEASE_WORKFLOW.contains("actions/attest@v4"));
+    assert!(RELEASE_WORKFLOW.contains("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4"));
     assert!(RELEASE_WORKFLOW.contains("sbom-path: release-evidence/sbom.cdx.json"));
 }
 
