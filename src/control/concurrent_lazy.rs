@@ -154,6 +154,34 @@ pub const fn concurrent_lazy_reentry_matches(active: usize, candidate: usize) ->
     active == candidate
 }
 
+/// Pure decision for the total `try_force` path.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ConcurrentLazyTryForceDecision {
+    Ready = 0,
+    Initialize = 1,
+    Wait = 2,
+    Error = 3,
+}
+
+/// Classifies `try_force` state without panicking.
+#[doc(hidden)]
+#[must_use]
+pub const fn concurrent_lazy_try_force_decision(
+    state: u8,
+    reentrant: bool,
+) -> ConcurrentLazyTryForceDecision {
+    match state {
+        STATE_READY => ConcurrentLazyTryForceDecision::Ready,
+        STATE_EMPTY => ConcurrentLazyTryForceDecision::Initialize,
+        STATE_COMPUTING if reentrant => ConcurrentLazyTryForceDecision::Error,
+        STATE_COMPUTING => ConcurrentLazyTryForceDecision::Wait,
+        STATE_POISONED => ConcurrentLazyTryForceDecision::Error,
+        _ => ConcurrentLazyTryForceDecision::Error,
+    }
+}
+
 /// RAII guard for panic safety during initialization (bracket pattern).
 ///
 /// On panic, sets `STATE_POISONED` under mutex and wakes all waiters.
@@ -491,23 +519,34 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         }
     }
 
-    /// Performs the initialization.
-    ///
-    /// # Safety
+    /// Performs initialization for the explicitly partial `force()` wrapper.
+    fn do_init(&self) -> &T {
+        self.do_init_result()
+            .unwrap_or_else(|_| panic!("ConcurrentLazy: initialization failed or re-entered"))
+    }
+
+    /// Performs initialization without unwinding.
     ///
     /// Must only be called after successfully transitioning to `STATE_COMPUTING`.
-    fn do_init(&self) -> &T {
+    fn do_init_result(&self) -> Result<&T, ConcurrentLazyPoisonedError> {
         let initialization_identity = concurrent_lazy_identity(self);
+        let duplicate = CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+            stack
+                .borrow()
+                .iter()
+                .any(|active| concurrent_lazy_reentry_matches(*active, initialization_identity))
+        });
+        if duplicate {
+            {
+                let _lock = self.wait_sync.0.mutex.lock();
+                self.state.store(STATE_POISONED, Ordering::Release);
+            }
+            self.wait_sync.0.condvar.notify_all();
+            return Err(ConcurrentLazyPoisonedError);
+        }
+
         CONCURRENT_LAZY_INIT_STACK.with(|stack| {
-            let mut stack = stack.borrow_mut();
-            assert!(
-                !stack.iter().any(|active| {
-                    concurrent_lazy_reentry_matches(*active, initialization_identity)
-                }),
-                "ConcurrentLazy::force re-entrant initialization detected: \
-                 the same ConcurrentLazy instance is already being initialized on this thread"
-            );
-            stack.push(initialization_identity);
+            stack.borrow_mut().push(initialization_identity);
         });
 
         let mut guard = InitializationDropGuard {
@@ -516,42 +555,37 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             completed: false,
         };
 
-        // SAFETY: compare_exchange succeeded, so only this thread is in STATE_COMPUTING.
-        let initializer = unsafe { (*self.initializer.get()).take() }
-            .expect("ConcurrentLazy: initializer already consumed");
+        // SAFETY: compare_exchange succeeded, so this invocation owns initialization.
+        let Some(initializer) = (unsafe { (*self.initializer.get()).take() }) else {
+            return Err(ConcurrentLazyPoisonedError);
+        };
 
         let result = catch_unwind(AssertUnwindSafe(initializer));
+        let succeeded = match result {
+            Ok(value) => {
+                // SAFETY: only the owner of STATE_COMPUTING reaches this write.
+                unsafe { (*self.value.get()).write(value) };
+                true
+            }
+            Err(_) => false,
+        };
 
-        let succeeded = result.is_ok_and(|value| {
-            // SAFETY: Only the thread that acquired STATE_COMPUTING reaches here.
-            unsafe { (*self.value.get()).write(value) };
-            true
-        });
-
-        // State change under mutex prevents lost wakeup: a waiter that checked
-        // state but hasn't entered condvar.wait() yet is blocked on mutex.lock(),
-        // so it will see the updated state when it resumes.
         {
             let _lock = self.wait_sync.0.mutex.lock();
             self.state.store(
-                if succeeded {
-                    STATE_READY
-                } else {
-                    STATE_POISONED
-                },
+                if succeeded { STATE_READY } else { STATE_POISONED },
                 Ordering::Release,
             );
             guard.completed = true;
         }
         self.wait_sync.0.condvar.notify_all();
 
-        assert!(
-            succeeded,
-            "ConcurrentLazy: initialization function panicked"
-        );
+        if !succeeded {
+            return Err(ConcurrentLazyPoisonedError);
+        }
 
-        // SAFETY: value was written above when succeeded is true.
-        unsafe { (*self.value.get()).assume_init_ref() }
+        // SAFETY: successful initialization wrote value before READY publication.
+        Ok(unsafe { (*self.value.get()).assume_init_ref() })
     }
 
     /// Number of spin iterations before yielding to the OS scheduler.
@@ -621,10 +655,8 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// - The lazy value is poisoned (initialization previously panicked)
     /// - The initialization function has already been consumed
     ///
-    /// # Panics
-    ///
-    /// If the initialization function panics during `into_inner`, the panic is
-    /// propagated after marking the instance as poisoned.
+    /// Initializer panics are caught and returned as
+    /// `Err(ConcurrentLazyPoisonedError)`.
     pub fn into_inner(self) -> Result<T, ConcurrentLazyPoisonedError> {
         let mut this = ManuallyDrop::new(self);
         let state = this.state.load(Ordering::Acquire);
@@ -666,13 +698,17 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     }
                     Err(_) => {
                         this.state.store(STATE_POISONED, Ordering::Release);
-                        // SAFETY: Drop non-value fields before panicking.
+                        // SAFETY: No initialized value is present.
                         unsafe { ManuallyDrop::drop(&mut this) };
-                        panic!("ConcurrentLazy: initialization function panicked");
+                        Err(ConcurrentLazyPoisonedError)
                     }
                 }
             }
-            _ => unreachable!("Invalid state"),
+            _ => {
+                // SAFETY: Invalid state does not claim an initialized value.
+                unsafe { ManuallyDrop::drop(&mut this) };
+                Err(ConcurrentLazyPoisonedError)
+            }
         }
     }
 }
@@ -804,10 +840,8 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// Returns `Err(ConcurrentLazyPoisonedError)` only if:
     /// - The lazy value is poisoned (initialization previously panicked)
     ///
-    /// # Panics
-    ///
-    /// Panics if the initialization function itself panics. The panic is not caught;
-    /// only the poisoned state (from a previous panic) is handled via `Result`.
+    /// Initializer panics are caught, the instance is poisoned, and this method
+    /// returns `Err(ConcurrentLazyPoisonedError)`.
     ///
     /// # Examples
     ///
@@ -945,34 +979,38 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         let mut state = self.state.load(Ordering::Acquire);
 
         loop {
-            match state {
-                STATE_READY => {
-                    // SAFETY: Same as force() - state is STATE_READY so value is initialized
+            let identity = concurrent_lazy_identity(self);
+            let reentrant = state == STATE_COMPUTING
+                && CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+                    stack
+                        .borrow()
+                        .iter()
+                        .any(|active| concurrent_lazy_reentry_matches(*active, identity))
+                });
+
+            match concurrent_lazy_try_force_decision(state, reentrant) {
+                ConcurrentLazyTryForceDecision::Ready => {
+                    // SAFETY: READY guarantees initialized value.
                     return Ok(unsafe { (*self.value.get()).assume_init_ref() });
                 }
-                STATE_POISONED => {
-                    return Err(ConcurrentLazyPoisonedError);
-                }
-                STATE_EMPTY => {
+                ConcurrentLazyTryForceDecision::Initialize => {
                     match self.state.compare_exchange_weak(
                         STATE_EMPTY,
                         STATE_COMPUTING,
                         Ordering::AcqRel,
                         Ordering::Acquire,
                     ) {
-                        Ok(_) => {
-                            return Ok(self.do_init());
-                        }
-                        Err(current_state) => {
-                            state = current_state;
-                        }
+                        Ok(_) => return self.do_init_result(),
+                        Err(current_state) => state = current_state,
                     }
                 }
-                STATE_COMPUTING => {
+                ConcurrentLazyTryForceDecision::Wait => {
                     self.spin_then_wait();
                     state = self.state.load(Ordering::Acquire);
                 }
-                _ => unreachable!("Invalid state"),
+                ConcurrentLazyTryForceDecision::Error => {
+                    return Err(ConcurrentLazyPoisonedError);
+                }
             }
         }
     }
@@ -1431,11 +1469,9 @@ mod tests {
     // =========================================================================
 
     #[rstest]
-    fn test_concurrent_lazy_into_inner_panic_behavior() {
+    fn test_concurrent_lazy_into_inner_initializer_panic_is_typed_error() {
         let lazy = ConcurrentLazy::new(|| -> i32 { panic!("into_inner panic test") });
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.into_inner()));
-        assert!(result.is_err());
+        assert_eq!(lazy.into_inner(), Err(ConcurrentLazyPoisonedError));
     }
 
     // =========================================================================
@@ -1743,6 +1779,14 @@ mod tests {
         // try_force waits indefinitely for initialization to complete, then returns Ok
         assert_eq!(*lazy.try_force().unwrap(), 42);
         assert_eq!(init_handle.join().unwrap(), 42);
+    }
+
+    #[rstest]
+    fn test_try_force_initializer_panic_is_typed_error() {
+        let lazy = ConcurrentLazy::new(|| -> i32 { panic!("try_force panic test") });
+        assert_eq!(lazy.try_force(), Err(ConcurrentLazyPoisonedError));
+        assert!(lazy.is_poisoned());
+        assert_eq!(lazy.try_force(), Err(ConcurrentLazyPoisonedError));
     }
 
     #[rstest]

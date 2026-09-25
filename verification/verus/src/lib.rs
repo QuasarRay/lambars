@@ -600,4 +600,53 @@ pub proof fn sc026_lazy_execution_mode_preserves_totality(state: int, execution_
 {
 }
 
+
+/// SC-026 model of total ConcurrentLazy try_force.
+/// 0=ready, 1=initialize, 2=wait, 3=typed error.
+pub open spec fn concurrent_lazy_try_force_decision_model(
+    state: int,
+    reentrant: bool,
+) -> int {
+    if state == 2 { 0 }
+    else if state == 0 { 1 }
+    else if state == 1 && !reentrant { 2 }
+    else { 3 }
+}
+
+pub open spec fn concurrent_lazy_try_force_for_mode_model(
+    state: int,
+    reentrant: bool,
+    execution_mode: int,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        concurrent_lazy_try_force_decision_model(state, reentrant)
+    } else {
+        3
+    }
+}
+
+pub proof fn sc026_concurrent_lazy_try_force_is_total(state: int, reentrant: bool)
+    ensures
+        0 <= concurrent_lazy_try_force_decision_model(state, reentrant)
+            <= 3,
+{
+}
+
+pub proof fn sc026_concurrent_lazy_reentry_is_error()
+    ensures concurrent_lazy_try_force_decision_model(1, true) == 3
+{
+}
+
+pub proof fn sc026_concurrent_lazy_execution_mode_preserves_decision(
+    state: int,
+    reentrant: bool,
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        concurrent_lazy_try_force_for_mode_model(state, reentrant, execution_mode)
+            == concurrent_lazy_try_force_decision_model(state, reentrant),
+{
+}
+
 } // verus!

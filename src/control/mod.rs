@@ -76,8 +76,9 @@ mod lazy;
 mod trampoline;
 
 pub use concurrent_lazy::{
-    ConcurrentLazy, ConcurrentLazyPoisonedError, ConcurrentLazyWaitDecision,
-    ConcurrentLazyWaitError, concurrent_lazy_reentry_matches, concurrent_lazy_wait_decision,
+    ConcurrentLazy, ConcurrentLazyPoisonedError, ConcurrentLazyTryForceDecision,
+    ConcurrentLazyWaitDecision, ConcurrentLazyWaitError, concurrent_lazy_reentry_matches,
+    concurrent_lazy_try_force_decision, concurrent_lazy_wait_decision,
 };
 pub use continuation::Continuation;
 pub use either::Either;
