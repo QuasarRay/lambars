@@ -110,4 +110,306 @@ pub proof fn sc029_only_keyed_hash_mode_is_exposed()
 {
 }
 
+
+/// Formal model of the fail-closed SC-001..SC-040 release gate.
+pub open spec fn safety_release_qualified_model(closed: Seq<bool>) -> bool {
+    closed.len() == 40
+    && forall|i: int| 0 <= i < 40 ==> closed[i]
+}
+
+pub proof fn unresolved_finding_blocks_release(closed: Seq<bool>, index: int)
+    requires
+        closed.len() == 40,
+        0 <= index < 40,
+        !closed[index],
+    ensures
+        !safety_release_qualified_model(closed),
+{
+    if safety_release_qualified_model(closed) {
+        assert(forall|i: int| 0 <= i < 40 ==> closed[i]);
+        assert(closed[index]);
+        assert(false);
+    }
+}
+
+pub proof fn sc001_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[0]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 0);
+}
+
+pub proof fn sc002_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[1]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 1);
+}
+
+pub proof fn sc003_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[2]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 2);
+}
+
+pub proof fn sc004_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[3]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 3);
+}
+
+pub proof fn sc005_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[4]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 4);
+}
+
+pub proof fn sc006_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[5]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 5);
+}
+
+pub proof fn sc007_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[6]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 6);
+}
+
+pub proof fn sc008_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[7]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 7);
+}
+
+pub proof fn sc009_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[8]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 8);
+}
+
+pub proof fn sc010_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[9]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 9);
+}
+
+pub proof fn sc011_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[10]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 10);
+}
+
+pub proof fn sc012_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[11]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 11);
+}
+
+pub proof fn sc013_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[12]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 12);
+}
+
+pub proof fn sc014_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[13]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 13);
+}
+
+pub proof fn sc015_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[14]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 14);
+}
+
+pub proof fn sc016_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[15]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 15);
+}
+
+pub proof fn sc017_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[16]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 16);
+}
+
+pub proof fn sc018_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[17]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 17);
+}
+
+pub proof fn sc019_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[18]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 18);
+}
+
+pub proof fn sc020_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[19]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 19);
+}
+
+pub proof fn sc021_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[20]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 20);
+}
+
+pub proof fn sc022_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[21]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 21);
+}
+
+pub proof fn sc023_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[22]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 22);
+}
+
+pub proof fn sc024_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[23]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 23);
+}
+
+pub proof fn sc025_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[24]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 24);
+}
+
+pub proof fn sc026_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[25]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 25);
+}
+
+pub proof fn sc027_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[26]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 26);
+}
+
+pub proof fn sc028_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[27]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 27);
+}
+
+pub proof fn sc029_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[28]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 28);
+}
+
+pub proof fn sc030_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[29]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 29);
+}
+
+pub proof fn sc031_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[30]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 30);
+}
+
+pub proof fn sc032_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[31]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 31);
+}
+
+pub proof fn sc033_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[32]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 32);
+}
+
+pub proof fn sc034_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[33]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 33);
+}
+
+pub proof fn sc035_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[34]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 34);
+}
+
+pub proof fn sc036_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[35]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 35);
+}
+
+pub proof fn sc037_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[36]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 36);
+}
+
+pub proof fn sc038_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[37]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 37);
+}
+
+pub proof fn sc039_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[38]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 38);
+}
+
+pub proof fn sc040_unresolved_blocks_release(closed: Seq<bool>)
+    requires closed.len() == 40, !closed[39]
+    ensures !safety_release_qualified_model(closed)
+{
+    unresolved_finding_blocks_release(closed, 39);
+}
+
 } // verus!
