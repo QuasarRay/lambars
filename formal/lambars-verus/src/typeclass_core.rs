@@ -54,47 +54,52 @@ pub proof fn monoid_product_i64_combine_all_empty_returns_identity() {
     assert(1int == 1int);
 }
 
-pub const I64_MIN_MODEL: int = -9223372036854775808;
-pub const I64_MAX_MODEL: int = 9223372036854775807;
+pub open spec fn i64_min_model() -> int {
+    -9223372036854775808int
+}
+
+pub open spec fn i64_max_model() -> int {
+    9223372036854775807int
+}
 
 pub proof fn monoid_max_i64_left_identity_law_holds(value: int)
     requires
-        I64_MIN_MODEL <= value,
-        value <= I64_MAX_MODEL,
+        i64_min_model() <= value,
+        value <= i64_max_model(),
 {
-    assert(max_int(I64_MIN_MODEL, value) == value);
+    assert(max_int(i64_min_model(), value) == value);
 }
 
 pub proof fn monoid_max_i64_right_identity_law_holds(value: int)
     requires
-        I64_MIN_MODEL <= value,
-        value <= I64_MAX_MODEL,
+        i64_min_model() <= value,
+        value <= i64_max_model(),
 {
-    assert(max_int(value, I64_MIN_MODEL) == value);
+    assert(max_int(value, i64_min_model()) == value);
 }
 
 pub proof fn monoid_max_i64_combine_all_empty_returns_identity() {
-    assert(I64_MIN_MODEL == -9223372036854775808);
+    assert(i64_min_model() == -9223372036854775808);
 }
 
 pub proof fn monoid_min_i64_left_identity_law_holds(value: int)
     requires
-        I64_MIN_MODEL <= value,
-        value <= I64_MAX_MODEL,
+        i64_min_model() <= value,
+        value <= i64_max_model(),
 {
-    assert(min_int(I64_MAX_MODEL, value) == value);
+    assert(min_int(i64_max_model(), value) == value);
 }
 
 pub proof fn monoid_min_i64_right_identity_law_holds(value: int)
     requires
-        I64_MIN_MODEL <= value,
-        value <= I64_MAX_MODEL,
+        i64_min_model() <= value,
+        value <= i64_max_model(),
 {
-    assert(min_int(value, I64_MAX_MODEL) == value);
+    assert(min_int(value, i64_max_model()) == value);
 }
 
 pub proof fn monoid_min_i64_combine_all_empty_returns_identity() {
-    assert(I64_MAX_MODEL == 9223372036854775807);
+    assert(i64_max_model() == 9223372036854775807);
 }
 
 pub type OptionIntModel = (bool, int);
