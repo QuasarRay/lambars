@@ -1836,15 +1836,14 @@ impl<A: Send + 'static> AsyncIO<A> {
     /// # Deprecation
     ///
     /// This method is deprecated since version 0.1.0.
-    /// Use [`runtime::run_blocking`] to execute async computations synchronously,
-    /// or `.await` in async contexts.
+    /// Use [`runtime::run_blocking`] to execute async computations synchronously
+    /// with explicit error handling, or `.await` in async contexts.
     ///
-    /// # Warning
+    /// # Error handling
     ///
-    /// This method uses [`runtime::run_blocking`] internally, which cannot
-    /// be called from within a current-thread runtime (e.g., `#[tokio::test]`
-    /// with `flavor = "current_thread"`). Calling this from a current-thread
-    /// runtime will panic.
+    /// This method uses [`runtime::run_blocking`] internally. Unsupported
+    /// runtime contexts, runtime-initialization failure, or unwinding are
+    /// represented by `BlockingError` in the returned IO value.
     ///
     /// # Examples
     ///
@@ -1855,7 +1854,7 @@ impl<A: Send + 'static> AsyncIO<A> {
     ///     let async_io = AsyncIO::pure(42);
     ///     let io = async_io.to_sync();
     ///     let result = io.run_unsafe();
-    ///     assert_eq!(result, 42);
+    ///     assert_eq!(result.unwrap(), 42);
     /// }
     /// ```
     ///
@@ -1867,7 +1866,8 @@ impl<A: Send + 'static> AsyncIO<A> {
     ///
     /// // Alternative 1: Use runtime::run_blocking
     /// let async_io = AsyncIO::pure(42);
-    /// let result = runtime::run_blocking(async_io);
+    /// let result = runtime::run_blocking(async_io)?;
+    /// # Ok::<(), lambars::effect::async_io::runtime::BlockingError>(())
     ///
     /// // Alternative 2: Use await in async context
     /// async fn example() {
@@ -1876,16 +1876,13 @@ impl<A: Send + 'static> AsyncIO<A> {
     /// }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if called from within a current-thread runtime.
     #[must_use]
     #[deprecated(
         since = "0.1.0",
         note = "Use `runtime::run_blocking` or await in async context"
     )]
     #[allow(deprecated)]
-    pub fn to_sync(self) -> super::IO<A> {
+    pub fn to_sync(self) -> super::IO<Result<A, runtime::BlockingError>> {
         super::IO::new(move || runtime::run_blocking(self))
     }
 }

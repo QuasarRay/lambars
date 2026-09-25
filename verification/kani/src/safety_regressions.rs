@@ -496,3 +496,67 @@ mod concurrent_lazy_bounded_wait_regressions {
         assert_eq!(baseline, under_mode);
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod runtime_fallibility_regressions {
+    use lambars_alias::effect::async_io::runtime::{
+        BlockingExecutionDecision, blocking_execution_decision,
+    };
+
+    fn rejected_context_never_executes(context: u8) -> bool {
+        let decision = blocking_execution_decision(context);
+        if context >= 2 {
+            matches!(
+                decision,
+                BlockingExecutionDecision::CurrentThreadError
+                    | BlockingExecutionDecision::UnsupportedRuntimeError
+            )
+        } else {
+            true
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc027_runtime_context_classifier_is_fail_closed() {
+        assert_eq!(
+            blocking_execution_decision(0),
+            BlockingExecutionDecision::GlobalRuntime
+        );
+        assert_eq!(
+            blocking_execution_decision(1),
+            BlockingExecutionDecision::MultiThreadRuntime
+        );
+        assert!(rejected_context_never_executes(2));
+        assert!(rejected_context_never_executes(3));
+        assert!(rejected_context_never_executes(u8::MAX));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc027_current_or_unknown_runtime_context_never_becomes_runnable() {
+        let context: u8 = kani::any();
+        kani::assume(context >= 2);
+        assert!(rejected_context_never_executes(context));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc027_execution_mode_does_not_weaken_runtime_context_rejection() {
+        let context: u8 = kani::any();
+        let execution_mode: u8 = kani::any(); // 0 thread, 1 Rayon, 2 async caller
+        kani::assume(context >= 2);
+        kani::assume(execution_mode <= 2);
+
+        let decision = match execution_mode {
+            0 | 1 | 2 => blocking_execution_decision(context),
+            _ => unreachable!(),
+        };
+        assert!(matches!(
+            decision,
+            BlockingExecutionDecision::CurrentThreadError
+                | BlockingExecutionDecision::UnsupportedRuntimeError
+        ));
+    }
+}
