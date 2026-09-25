@@ -1,0 +1,21 @@
+[workspace]
+
+[package]
+name = "lambars-verus"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Verus formal-model backend for Lambars production-readiness specifications"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+vstd = "=0.0.0-2026-09-20-0158"
+lambars-spec = { path = "../lambars-spec" }
+lambars-formal-macros = { path = "../lambars-formal-macros" }
+
+[package.metadata.verus]
+verify = true
+
+[lints.rust]
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }
