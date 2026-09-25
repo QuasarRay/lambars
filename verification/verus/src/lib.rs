@@ -53,6 +53,19 @@ pub proof fn sc004_normalize_pair_is_strict_and_unique(a: int, b: int)
         normalize_pair(a, b).contains(a),
         normalize_pair(a, b).contains(b),
 {
+    if a < b {
+        assert(normalize_pair(a, b) == seq![a, b]);
+        assert(seq![a, b].contains(a));
+        assert(seq![a, b].contains(b));
+    } else if b < a {
+        assert(normalize_pair(a, b) == seq![b, a]);
+        assert(seq![b, a].contains(a));
+        assert(seq![b, a].contains(b));
+    } else {
+        assert(a == b);
+        assert(normalize_pair(a, b) == seq![a]);
+        assert(seq![a].contains(a));
+    }
 }
 
 /// SC-005 model of the consuming IO Functor operation that remains exposed.
