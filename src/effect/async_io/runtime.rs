@@ -632,6 +632,17 @@ mod tests {
     // Thread Safety Tests
     // =========================================================================
 
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn run_blocking_parallel_rayon_calls_are_fallible() {
+        let (left, right) = rayon::join(
+            || run_blocking(async { 20 }),
+            || run_blocking(async { 22 }),
+        );
+        assert_eq!(left, Ok(20));
+        assert_eq!(right, Ok(22));
+    }
+
     #[rstest]
     fn global_accessible_from_multiple_threads() {
         let results: Vec<Result<i32, BlockingError>> = (0..4)
