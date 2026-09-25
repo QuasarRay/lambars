@@ -691,3 +691,18 @@ fn test_law_sorted_iteration_large() {
     let expected: Vec<i32> = (1..=50).collect();
     assert_eq!(sorted, expected);
 }
+
+
+#[test]
+fn sc004_from_sorted_vec_normalizes_unsorted_duplicates() {
+    let set = lambars::persistent::OrderedUniqueSet::from_sorted_vec(vec![3, 1, 3, 2, 1]);
+    assert_eq!(set.to_sorted_vec(), vec![1, 2, 3]);
+    assert_eq!(set.len(), 3);
+}
+
+#[test]
+fn sc004_from_sorted_iter_normalizes_unsorted_duplicates() {
+    let set = lambars::persistent::OrderedUniqueSet::from_sorted_iter([4, 2, 4, 1, 2, 3]);
+    assert_eq!(set.to_sorted_vec(), vec![1, 2, 3, 4]);
+    assert_eq!(set.len(), 4);
+}

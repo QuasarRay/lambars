@@ -661,122 +661,66 @@ impl<T: Clone + Eq + Hash + Ord> OrderedUniqueSet<T> {
         }
     }
 
-    /// Creates an `OrderedUniqueSet` from a sorted, deduplicated iterator.
+    /// Creates an `OrderedUniqueSet` from an iterator.
     ///
-    /// This method provides efficient bulk construction by avoiding per-element
-    /// persistent clones. It assumes the input iterator yields strictly increasing
-    /// elements (sorted and deduplicated).
-    ///
-    /// # Preconditions
-    ///
-    /// - The iterator must yield elements in strictly ascending order
-    /// - No duplicate elements are allowed
-    ///
-    /// In debug builds, these preconditions are validated with `debug_assert!`.
-    /// In release builds, invalid input yields an incorrect collection state
-    /// (logic error, not memory unsafety).
-    ///
-    /// # Type Constraints
-    ///
-    /// `T: Ord` is required for debug assertions to validate ordering.
+    /// The fast path is O(n) when the input is already strictly increasing.
+    /// Unsorted input or duplicates are normalized by sorting and deduplicating,
+    /// so safe callers can never construct an invalid ordered/unique state.
     ///
     /// # Complexity
     ///
-    /// O(n) for both Small and Large paths.
-    ///
-    /// # Memory Allocation
-    ///
-    /// - Small (n <= 8): Uses `SmallVec` inline storage, no heap allocation
-    /// - Large (n > 8): Allocates a `Vec` wrapped in `SortedVec` for structural sharing
+    /// - already strictly increasing: O(n)
+    /// - otherwise: O(n log n)
     ///
     /// # Examples
     ///
     /// ```rust
     /// use lambars::persistent::OrderedUniqueSet;
     ///
-    /// let sorted_elements = vec![1, 3, 5, 7, 9];
-    /// let collection = OrderedUniqueSet::from_sorted_iter(sorted_elements);
-    /// assert_eq!(collection.len(), 5);
+    /// let collection = OrderedUniqueSet::from_sorted_iter([3, 1, 3, 2]);
+    /// assert_eq!(collection.to_sorted_vec(), vec![1, 2, 3]);
     /// ```
     #[must_use]
     pub fn from_sorted_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = T>,
     {
-        let mut small_buffer: SmallVec<[T; SMALL_THRESHOLD]> = SmallVec::new();
-        let mut iter = iter.into_iter();
-
-        for element in iter.by_ref() {
-            #[cfg(debug_assertions)]
-            debug_assert!(
-                small_buffer.last().is_none_or(|last| last < &element),
-                "{}",
-                SORTED_INVARIANT_PANIC_MESSAGE
-            );
-
-            if small_buffer.len() >= SMALL_THRESHOLD {
-                let buffered_len = small_buffer.len();
-                let (lower, _) = iter.size_hint();
-                let mut vec = Vec::with_capacity(buffered_len + 1 + lower);
-                vec.extend(small_buffer.drain(..));
-                vec.push(element);
-                vec.extend(iter);
-
-                #[cfg(debug_assertions)]
-                debug_assert!(
-                    is_strictly_sorted(&vec),
-                    "{}",
-                    SORTED_INVARIANT_PANIC_MESSAGE
-                );
-
-                return Self::from_large_vec(vec);
-            }
-            small_buffer.push(element);
-        }
-
-        if small_buffer.is_empty() {
-            Self::new()
-        } else {
-            Self {
-                inner: OrderedUniqueSetInner::Small(small_buffer),
-            }
-        }
+        Self::from_sorted_vec(iter.into_iter().collect())
     }
 
-    /// Creates an `OrderedUniqueSet` from a sorted, deduplicated `Vec`.
+    /// Creates an `OrderedUniqueSet` from a vector.
     ///
-    /// This method provides efficient bulk construction by consuming a `Vec<T>`
-    /// directly, avoiding extra allocations compared to `from_sorted_iter`.
-    ///
-    /// # Preconditions
-    ///
-    /// - The vector must contain elements in strictly ascending order
-    /// - No duplicate elements are allowed
-    ///
-    /// In debug builds, these preconditions are validated with `debug_assert!`.
-    /// In release builds, invalid input yields an incorrect collection state
-    /// (logic error, not memory unsafety).
-    ///
-    /// # Type Constraints
-    ///
-    /// `T: Ord` is required for debug assertions to validate ordering.
+    /// If the vector is already strictly increasing it is consumed directly.
+    /// Otherwise it is sorted and deduplicated before the representation is built.
+    /// The ordered/unique invariant therefore holds for every safe input in both
+    /// debug and release builds.
     ///
     /// # Complexity
     ///
-    /// O(n) for both Small and Large paths.
+    /// - already strictly increasing: O(n)
+    /// - otherwise: O(n log n)
     ///
     /// # Examples
     ///
     /// ```rust
     /// use lambars::persistent::OrderedUniqueSet;
     ///
-    /// let sorted_vec = vec![2, 4, 6, 8, 10];
-    /// let collection = OrderedUniqueSet::from_sorted_vec(sorted_vec);
-    /// assert_eq!(collection.len(), 5);
+    /// let collection = OrderedUniqueSet::from_sorted_vec(vec![4, 2, 4, 1]);
+    /// assert_eq!(collection.to_sorted_vec(), vec![1, 2, 4]);
     /// ```
     #[must_use]
-    pub fn from_sorted_vec(vec: Vec<T>) -> Self {
-        #[cfg(debug_assertions)]
+    pub fn from_sorted_vec(mut vec: Vec<T>) -> Self {
+        if !is_strictly_sorted(&vec) {
+            vec.sort_unstable();
+            vec.dedup();
+        }
+
+        Self::from_strictly_sorted_vec(vec)
+    }
+
+    /// Builds the representation from a vector whose strict ordering has already
+    /// been established by this module.
+    fn from_strictly_sorted_vec(vec: Vec<T>) -> Self {
         debug_assert!(
             is_strictly_sorted(&vec),
             "{}",
