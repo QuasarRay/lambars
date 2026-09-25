@@ -1661,6 +1661,37 @@ mod tests {
         assert_eq!(init_handle.join().unwrap(), 42);
     }
 
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn test_wait_for_parallel_rayon_waiters_observe_ready_value() {
+        use std::sync::atomic::AtomicBool;
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = Arc::clone(&started);
+        let lazy = Arc::new(ConcurrentLazy::new(move || {
+            started_clone.store(true, AtomicOrdering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            42
+        }));
+
+        let init = Arc::clone(&lazy);
+        let init_handle = std::thread::spawn(move || *init.force());
+        while !started.load(AtomicOrdering::SeqCst) {
+            std::thread::yield_now();
+        }
+
+        let left = Arc::clone(&lazy);
+        let right = Arc::clone(&lazy);
+        let (a, b) = rayon::join(
+            || left.wait_for(std::time::Duration::from_secs(1)).copied(),
+            || right.wait_for(std::time::Duration::from_secs(1)).copied(),
+        );
+
+        assert_eq!(a, Ok(42));
+        assert_eq!(b, Ok(42));
+        assert_eq!(init_handle.join().unwrap(), 42);
+    }
+
     #[cfg(feature = "async")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_wait_for_cloned_async_observes_concurrent_initialization() {
