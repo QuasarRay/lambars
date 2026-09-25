@@ -75,16 +75,67 @@ fn scan_file(path: &Path, groups: &mut BTreeMap<u64, Vec<PatternOccurrence>>) ->
         Ok(file) => file,
         Err(_) => return Ok(()),
     };
-    for item in file.items {
-        if let syn::Item::Fn(function) = item {
-            let normalized = normalize_tokens(function.block.to_token_stream());
-            groups.entry(fnv1a64(normalized.as_bytes())).or_default().push(PatternOccurrence {
-                path: path.display().to_string(),
-                function: function.sig.ident.to_string(),
-            });
+    scan_items(path, &file.items, groups);
+    Ok(())
+}
+
+fn scan_items(
+    path: &Path,
+    items: &[syn::Item],
+    groups: &mut BTreeMap<u64, Vec<PatternOccurrence>>,
+) {
+    for item in items {
+        match item {
+            syn::Item::Fn(function) => {
+                record_pattern(path, &function.sig.ident.to_string(), function.block.to_token_stream(), groups);
+            }
+            syn::Item::Impl(implementation) => {
+                for impl_item in &implementation.items {
+                    if let syn::ImplItem::Fn(function) = impl_item {
+                        record_pattern(
+                            path,
+                            &function.sig.ident.to_string(),
+                            function.block.to_token_stream(),
+                            groups,
+                        );
+                    }
+                }
+            }
+            syn::Item::Trait(trait_item) => {
+                for item in &trait_item.items {
+                    if let syn::TraitItem::Fn(function) = item {
+                        if let Some(block) = &function.default {
+                            record_pattern(
+                                path,
+                                &function.sig.ident.to_string(),
+                                block.to_token_stream(),
+                                groups,
+                            );
+                        }
+                    }
+                }
+            }
+            syn::Item::Mod(module) => {
+                if let Some((_, nested)) = &module.content {
+                    scan_items(path, nested, groups);
+                }
+            }
+            _ => {}
         }
     }
-    Ok(())
+}
+
+fn record_pattern(
+    path: &Path,
+    function: &str,
+    body: TokenStream,
+    groups: &mut BTreeMap<u64, Vec<PatternOccurrence>>,
+) {
+    let normalized = normalize_tokens(body);
+    groups.entry(fnv1a64(normalized.as_bytes())).or_default().push(PatternOccurrence {
+        path: path.display().to_string(),
+        function: function.to_owned(),
+    });
 }
 
 fn normalize_tokens(stream: TokenStream) -> String {
