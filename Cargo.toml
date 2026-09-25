@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "lambars-derive", "xtask", "formal/lambars-spec", "formal/lambars-formal-macros"]
+members = [".", "lambars-derive", "xtask", "formal/lambars-spec", "formal/lambars-formal-macros", "formal/lambars-kani"]
 exclude = ["benches/api"]
 resolver = "3"
 

@@ -1,0 +1,43 @@
+name: Formal Kani
+
+on:
+  pull_request:
+    paths:
+      - "formal/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/formal-kani.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  KANI_VERSION: "0.67.0"
+
+jobs:
+  catalog-and-kani:
+    name: Catalog integrity and Kani proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install declared Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.92.0"
+
+      - name: Validate formal specification catalog
+        run: cargo run -p xtask -- formal-catalog validate
+
+      - name: Test backend-neutral formal infrastructure
+        run: cargo test -p lambars-spec -p lambars-formal-macros -p lambars-kani
+
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier --version "$KANI_VERSION"
+          cargo kani setup
+
+      - name: Verify Kani semantic and metaverification harnesses
+        working-directory: formal/lambars-kani
+        run: cargo kani
