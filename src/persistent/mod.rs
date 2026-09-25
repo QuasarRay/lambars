@@ -147,6 +147,8 @@ pub use hashmap::NodePoolMetrics;
 pub use hashmap::PersistentHashMap;
 #[doc(hidden)]
 pub use hashmap::persistent_hashmap_generation_successor;
+#[doc(hidden)]
+pub use hashmap::{PersistentHashSecurityMode, persistent_hash_security_mode};
 pub use hashmap::PersistentHashMapIntoIterator;
 pub use hashmap::PersistentHashMapIterator;
 pub use hashmap::TransientHashMap;
