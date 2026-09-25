@@ -18,6 +18,7 @@ const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
 const DENY_POLICY: &str = include_str!("../deny.toml");
 const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release.yml");
 const QUALIFICATION: &str = include_str!("../verification/qualification.json");
+const ASYNC_RUNTIME_SOURCE: &str = include_str!("../src/effect/async_io/runtime.rs");
 const CODEOWNERS: &str = include_str!("../.github/CODEOWNERS");
 const GOVERNANCE: &str = include_str!("../GOVERNANCE.md");
 const MAINTAINERS: &str = include_str!("../MAINTAINERS.md");
@@ -187,4 +188,24 @@ fn sc021_repository_has_explicit_safety_governance_and_ownership() {
     assert!(GOVERNANCE.contains("fail-closed"));
     assert!(GOVERNANCE.contains("SC-008"));
     assert!(GOVERNANCE.contains("must not represent single-maintainer approval as independent assurance"));
+}
+
+
+#[test]
+fn sc027_async_runtime_public_bridge_is_fail_closed_not_expect_based() {
+    assert!(ASYNC_RUNTIME_SOURCE.contains(
+        "static GLOBAL_RUNTIME: LazyLock<Result<Runtime, RuntimeError>>"
+    ));
+    assert!(ASYNC_RUNTIME_SOURCE.contains(
+        "pub fn global() -> Result<&'static Runtime, RuntimeError>"
+    ));
+    assert!(ASYNC_RUNTIME_SOURCE.contains(
+        "pub fn run_blocking<F, T>(future: F) -> Result<T, BlockingError>"
+    ));
+    assert!(!ASYNC_RUNTIME_SOURCE.contains(
+        ".expect(\"Failed to create global tokio runtime\")"
+    ));
+    assert!(!ASYNC_RUNTIME_SOURCE.contains(
+        "try_run_blocking(future).expect(\"run_blocking failed\")"
+    ));
 }
