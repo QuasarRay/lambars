@@ -51,7 +51,7 @@ use arrayvec::ArrayVec;
 
 use super::ReferenceCounter;
 
-use crate::typeclass::{Foldable, Functor, FunctorMut, Monoid, Semigroup, TypeConstructor};
+use crate::typeclass::{Foldable, Functor, FunctorMut, FunctorRef, Monoid, Semigroup, TypeConstructor};
 
 // =============================================================================
 // Constants
@@ -3630,21 +3630,18 @@ impl<T> TypeConstructor for PersistentVector<T> {
 impl<T: Clone> Functor for PersistentVector<T> {
     fn fmap<B, F>(self, function: F) -> PersistentVector<B>
     where
-        F: FnOnce(T) -> B,
+        F: FnMut(T) -> B,
     {
-        // FnOnce can only be called once, so this only works for single-element vectors
-        self.get(0).map_or_else(PersistentVector::new, |first| {
-            PersistentVector::singleton(function(first.clone()))
-        })
+        <Self as FunctorMut>::fmap_mut(self, function)
     }
+}
 
+impl<T: Clone> FunctorRef for PersistentVector<T> {
     fn fmap_ref<B, F>(&self, function: F) -> PersistentVector<B>
     where
-        F: FnOnce(&T) -> B,
+        F: FnMut(&T) -> B,
     {
-        self.get(0).map_or_else(PersistentVector::new, |first| {
-            PersistentVector::singleton(function(first))
-        })
+        <Self as FunctorMut>::fmap_ref_mut(self, function)
     }
 }
 
