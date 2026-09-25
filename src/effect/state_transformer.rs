@@ -530,13 +530,16 @@ where
         note = "Use try_lift_io instead, which returns Result instead of panicking"
     )]
     #[must_use]
-    pub fn lift_io(inner: IO<A>) -> Self {
+    pub fn lift_io(inner: IO<A>) -> Self
+    where
+        S: Clone,
+    {
         let inner_rc = Rc::new(std::cell::RefCell::new(Some(inner)));
         Self::new(move |state| {
             let io = inner_rc.borrow_mut().take().unwrap_or_else(|| {
                 panic!("StateT::lift_io: IO already consumed. Use the StateT only once.")
             });
-            io.fmap(move |value| (value, state))
+            io.fmap(move |value| (value, state.clone()))
         })
     }
 
@@ -568,10 +571,13 @@ where
     /// ```
     #[must_use]
     #[allow(clippy::option_if_let_else)]
-    pub fn try_lift_io(inner: IO<A>) -> StateTTryLiftIO<S, A> {
+    pub fn try_lift_io(inner: IO<A>) -> StateTTryLiftIO<S, A>
+    where
+        S: Clone,
+    {
         let inner_rc = Rc::new(std::cell::RefCell::new(Some(inner)));
         StateT::new(move |state: S| match inner_rc.borrow_mut().take() {
-            Some(io) => io.fmap(move |value| Ok((value, state))),
+            Some(io) => io.fmap(move |value| Ok((value, state.clone()))),
             None => IO::pure(Err(EffectError::AlreadyConsumed(AlreadyConsumedError {
                 transformer_name: "StateT",
                 method_name: "try_lift_io",
