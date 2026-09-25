@@ -55,7 +55,7 @@ use std::iter::FromIterator;
 use super::ReferenceCounter;
 
 use crate::typeclass::{
-    Applicative, Foldable, Functor, FunctorMut, Monad, Monoid, Semigroup, TypeConstructor,
+    Applicative, Foldable, Functor, FunctorMut, FunctorRef, Monad, Monoid, Semigroup, TypeConstructor,
 };
 
 /// Internal node structure for the persistent list.
@@ -1339,21 +1339,18 @@ impl<T> TypeConstructor for PersistentList<T> {
 impl<T: Clone> Functor for PersistentList<T> {
     fn fmap<B, F>(self, function: F) -> PersistentList<B>
     where
-        F: FnOnce(T) -> B,
+        F: FnMut(T) -> B,
     {
-        // FnOnce can only be called once, so this only works for single-element lists
-        self.head().map_or_else(PersistentList::new, |head| {
-            PersistentList::singleton(function(head.clone()))
-        })
+        <Self as FunctorMut>::fmap_mut(self, function)
     }
+}
 
+impl<T: Clone> FunctorRef for PersistentList<T> {
     fn fmap_ref<B, F>(&self, function: F) -> PersistentList<B>
     where
-        F: FnOnce(&T) -> B,
+        F: FnMut(&T) -> B,
     {
-        self.head().map_or_else(PersistentList::new, |head| {
-            PersistentList::singleton(function(head))
-        })
+        <Self as FunctorMut>::fmap_ref_mut(self, function)
     }
 }
 
