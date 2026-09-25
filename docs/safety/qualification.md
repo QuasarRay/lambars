@@ -49,7 +49,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-026 | open | planned panic/totality review layer |
 | SC-027 | open | planned runtime-fallibility layer |
 | SC-028 | open | planned bounded ConcurrentLazy API layer |
-| SC-029 | open | planned trusted-hasher type boundary |
+| SC-029 | remediation in branch | safety/11-hash-hardening: insecure hashers retired; legacy flags are no-op; Kani/Verus keyed-mode invariants |
 | SC-030 | remediation in PR | #11 |
 | SC-031 | partial remediation | safety/08-ci-assurance: PR/main/manual formal workflows; required-status policy still open |
 | SC-032 | open | direct executable refinement expansion required |
