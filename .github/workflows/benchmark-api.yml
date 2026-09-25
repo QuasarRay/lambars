@@ -33,6 +33,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  YQ_VERSION: v4.53.6
+  YQ_LINUX_AMD64_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
+  WRK2_COMMIT: 44a94c17d8e6a0bac8559b53da76848e430cb7a7
+  FLAMEGRAPH_COMMIT: 41fee1f99f9276008b7cd112fca19dc3ea84ac32
+  JSONSCHEMA_VERSION: 4.25.1
 
 jobs:
   # =============================================================================
@@ -51,13 +56,17 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r)
           # Install yq (Mike Farah's YAML processor)
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility with main branch
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
@@ -141,20 +150,24 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r)
           # Install yq (Mike Farah's YAML processor)
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility with main branch
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
           # Verify wrk2 installation
           command -v wrk2 && wrk2 -v 2>&1 | head -1 || (echo "ERROR: wrk2 installation failed" && exit 1)
           # Install Python jsonschema for meta.json validation
-          pip install jsonschema
+          python -m pip install "jsonschema==${JSONSCHEMA_VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -540,20 +553,27 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r)
           # Install yq (Mike Farah's YAML processor)
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
           # Verify wrk2 installation
           command -v wrk2 && wrk2 -v 2>&1 | head -1 || (echo "ERROR: wrk2 installation failed" && exit 1)
           # Install FlameGraph tools
-          git clone --depth 1 https://github.com/brendangregg/FlameGraph /tmp/FlameGraph
+          git init /tmp/FlameGraph
+          git -C /tmp/FlameGraph remote add origin https://github.com/brendangregg/FlameGraph
+          git -C /tmp/FlameGraph fetch --depth 1 origin "${FLAMEGRAPH_COMMIT}"
+          git -C /tmp/FlameGraph checkout --detach "${FLAMEGRAPH_COMMIT}"
           sudo ln -sf /tmp/FlameGraph/stackcollapse-perf.pl /usr/local/bin/
           sudo ln -sf /tmp/FlameGraph/flamegraph.pl /usr/local/bin/
 
@@ -607,20 +627,27 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r)
           # Install yq (Mike Farah's YAML processor)
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
           # Verify wrk2 installation
           command -v wrk2 && wrk2 -v 2>&1 | head -1 || (echo "ERROR: wrk2 installation failed" && exit 1)
           # Install FlameGraph tools
-          git clone --depth 1 https://github.com/brendangregg/FlameGraph /tmp/FlameGraph
+          git init /tmp/FlameGraph
+          git -C /tmp/FlameGraph remote add origin https://github.com/brendangregg/FlameGraph
+          git -C /tmp/FlameGraph fetch --depth 1 origin "${FLAMEGRAPH_COMMIT}"
+          git -C /tmp/FlameGraph checkout --detach "${FLAMEGRAPH_COMMIT}"
           sudo ln -sf /tmp/FlameGraph/stackcollapse-perf.pl /usr/local/bin/
           sudo ln -sf /tmp/FlameGraph/flamegraph.pl /usr/local/bin/
 
@@ -677,24 +704,31 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r)
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
           # Verify wrk2 installation
           command -v wrk2 && wrk2 -v 2>&1 | head -1 || (echo "ERROR: wrk2 installation failed" && exit 1)
           # Install yq (Mike Farah's YAML processor)
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Install FlameGraph tools
-          git clone --depth 1 https://github.com/brendangregg/FlameGraph /tmp/FlameGraph
+          git init /tmp/FlameGraph
+          git -C /tmp/FlameGraph remote add origin https://github.com/brendangregg/FlameGraph
+          git -C /tmp/FlameGraph fetch --depth 1 origin "${FLAMEGRAPH_COMMIT}"
+          git -C /tmp/FlameGraph checkout --detach "${FLAMEGRAPH_COMMIT}"
           sudo ln -sf /tmp/FlameGraph/stackcollapse-perf.pl /usr/local/bin/
           sudo ln -sf /tmp/FlameGraph/flamegraph.pl /usr/local/bin/
           # Install Python jsonschema for meta.json validation
-          pip install jsonschema
+          python -m pip install "jsonschema==${JSONSCHEMA_VERSION}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
