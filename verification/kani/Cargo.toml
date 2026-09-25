@@ -7,7 +7,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-lambars_alias = { package = "lambars", path = "../..", features = ["serde", "arc"] }
+lambars_alias = { package = "lambars", path = "../..", features = ["serde", "arc", "fxhash", "ahash"] }
 lambars-verification = { path = "../../lambars-verification" }
 lambars-derive = { path = "../../lambars-derive" }
 static_assertions = "1.1"
