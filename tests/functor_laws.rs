@@ -209,7 +209,7 @@ proptest! {
         replacement in any::<String>()
     ) {
         let left = original.replace(replacement.clone());
-        let right = original.fmap(|_| replacement);
+        let right = original.fmap(|_| replacement.clone());
         prop_assert_eq!(left, right);
     }
 

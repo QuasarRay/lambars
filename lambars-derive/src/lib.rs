@@ -81,8 +81,8 @@ mod lenses;
 mod prisms;
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_crate::{FoundCrate, crate_name};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 
 fn lambars_crate_path() -> TokenStream2 {

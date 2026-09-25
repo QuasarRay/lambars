@@ -51,7 +51,9 @@ use arrayvec::ArrayVec;
 
 use super::ReferenceCounter;
 
-use crate::typeclass::{Foldable, Functor, FunctorMut, FunctorRef, Monoid, Semigroup, TypeConstructor};
+use crate::typeclass::{
+    Foldable, Functor, FunctorMut, FunctorRef, Monoid, Semigroup, TypeConstructor,
+};
 
 // =============================================================================
 // Constants

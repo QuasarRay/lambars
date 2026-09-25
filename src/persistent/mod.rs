@@ -145,13 +145,13 @@ pub use hashmap::MAX_BULK_INSERT;
 pub use hashmap::NodePool;
 pub use hashmap::NodePoolMetrics;
 pub use hashmap::PersistentHashMap;
+pub use hashmap::PersistentHashMapIntoIterator;
+pub use hashmap::PersistentHashMapIterator;
+pub use hashmap::TransientHashMap;
 #[doc(hidden)]
 pub use hashmap::persistent_hashmap_generation_successor;
 #[doc(hidden)]
 pub use hashmap::{PersistentHashSecurityMode, persistent_hash_security_mode};
-pub use hashmap::PersistentHashMapIntoIterator;
-pub use hashmap::PersistentHashMapIterator;
-pub use hashmap::TransientHashMap;
 pub use hashset::HashSetView;
 pub use hashset::PersistentHashSet;
 pub use hashset::PersistentHashSetIntoIterator;

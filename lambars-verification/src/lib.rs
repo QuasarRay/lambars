@@ -42,7 +42,6 @@ macro_rules! delegate_kani_verification {
     };
 }
 
-
 /// Number of findings in the safety-critical qualification register.
 pub const SAFETY_FINDING_COUNT: usize = 40;
 
