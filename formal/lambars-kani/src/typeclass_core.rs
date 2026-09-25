@@ -6,29 +6,7 @@ use lambars::typeclass::{
 
 use crate::kani_proof;
 
-fn symbolic_option_bool() -> Option<bool> {
-    if kani::any::<bool>() {
-        Some(kani::any::<bool>())
-    } else {
-        None
-    }
-}
-
-fn symbolic_either_bool() -> Either<bool, bool> {
-    if kani::any::<bool>() {
-        Either::Left(kani::any::<bool>())
-    } else {
-        Either::Right(kani::any::<bool>())
-    }
-}
-
-fn symbolic_result_bool() -> Result<bool, bool> {
-    if kani::any::<bool>() {
-        Ok(kani::any::<bool>())
-    } else {
-        Err(kani::any::<bool>())
-    }
-}
+use crate::symbolic::{either_bool as symbolic_either_bool, option_bool as symbolic_option_bool, result_bool as symbolic_result_bool};
 
 macro_rules! associative_ord_wrapper_proofs {
     (
