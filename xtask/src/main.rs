@@ -4,6 +4,8 @@
 //!   cargo xtask bench-api --scenario <yaml> [options]
 
 mod bench_api;
+mod formal_catalog;
+mod formal_patterns;
 
 use clap::{Parser, Subcommand};
 
@@ -19,6 +21,10 @@ struct Cli {
 enum Commands {
     /// Run API benchmarks with scenario configuration
     BenchApi(bench_api::BenchApiArgs),
+    /// Validate the exhaustive formal-specification catalog.
+    FormalCatalog(formal_catalog::FormalCatalogArgs),
+    /// Detect repetitive implementation/proof shapes for macro extraction.
+    FormalPatterns(formal_patterns::FormalPatternsArgs),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -26,5 +32,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::BenchApi(args) => bench_api::run(args),
+        Commands::FormalCatalog(args) => formal_catalog::run(args),
+        Commands::FormalPatterns(args) => formal_patterns::run(args),
     }
 }
