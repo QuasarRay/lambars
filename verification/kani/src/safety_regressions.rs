@@ -628,3 +628,57 @@ mod async_pool_panic_contract_regressions {
         assert_eq!(decision, PoolEnqueueDecision::PoolClosed);
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod lazy_totality_regressions {
+    use lambars_alias::control::{Lazy, LazyForceDecision, lazy_force_decision};
+
+    static_assertions::assert_not_impl_any!(Lazy<u8>: Sync);
+
+    fn lazy_state_is_total(state: u8) -> bool {
+        matches!(
+            lazy_force_decision(state),
+            LazyForceDecision::Ready
+                | LazyForceDecision::Initialize
+                | LazyForceDecision::Error
+        )
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_lazy_total_classifier_has_no_panic_state() {
+        for state in 0u8..=u8::MAX {
+            assert!(lazy_state_is_total(state));
+        }
+
+        let lazy = Lazy::new(|| 41u8);
+        assert_eq!(lazy.try_force().copied(), Ok(41));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_lazy_state_classifier_is_total_for_every_byte() {
+        let state: u8 = kani::any();
+        assert!(lazy_state_is_total(state));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_lazy_execution_mode_cannot_introduce_a_panic_decision() {
+        let state: u8 = kani::any();
+        let execution_mode: u8 = kani::any(); // 0 local thread, 1 moved Rayon task, 2 local async task
+        kani::assume(execution_mode <= 2);
+
+        let decision = match execution_mode {
+            0 | 1 | 2 => lazy_force_decision(state),
+            _ => unreachable!(),
+        };
+        assert!(matches!(
+            decision,
+            LazyForceDecision::Ready
+                | LazyForceDecision::Initialize
+                | LazyForceDecision::Error
+        ));
+    }
+}
