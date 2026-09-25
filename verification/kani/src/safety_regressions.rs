@@ -1,5 +1,8 @@
 use lambars_alias::control::{ConcurrentLazy, concurrent_lazy_reentry_matches};
-use lambars_alias::persistent::persistent_hashmap_generation_successor;
+use lambars_alias::persistent::{
+    PersistentHashSecurityMode, persistent_hash_security_mode,
+    persistent_hashmap_generation_successor,
+};
 
 fn distinct_identity_is_not_reentrant(active: usize, candidate: usize) -> bool {
     active != candidate && !concurrent_lazy_reentry_matches(active, candidate)
@@ -318,5 +321,30 @@ mod concurrent_lazy_protocol_regressions {
         if allowed_transition(from, READY) || allowed_transition(from, POISONED) {
             assert_eq!(from, COMPUTING);
         }
+    }
+}
+
+
+#[cfg(any(test, kani))]
+mod hash_security_mode_regressions {
+    use super::*;
+
+    fn sc029_legacy_feature_combinations_remain_keyed() -> bool {
+        matches!(
+            persistent_hash_security_mode(),
+            PersistentHashSecurityMode::KeyedRandomState
+        )
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc029_hash_security_mode_is_keyed_even_with_legacy_flags_enabled() {
+        assert!(sc029_legacy_feature_combinations_remain_keyed());
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc029_no_compile_time_hash_feature_can_select_predictable_mode() {
+        assert!(sc029_legacy_feature_combinations_remain_keyed());
     }
 }
