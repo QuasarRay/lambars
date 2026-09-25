@@ -1,4 +1,5 @@
 use lambars::control::{ConcurrentLazy, concurrent_lazy_reentry_matches};
+use lambars::persistent::persistent_hashmap_generation_successor;
 
 fn distinct_identity_is_not_reentrant(active: usize, candidate: usize) -> bool {
     active != candidate && !concurrent_lazy_reentry_matches(active, candidate)
@@ -50,5 +51,38 @@ mod kani_proofs {
     fn sc002_same_instance_is_always_reentry() {
         let identity: usize = kani::any();
         assert!(same_identity_is_reentrant(identity));
+    }
+}
+
+
+fn generation_successor_is_nonzero_and_monotonic(current: u64) -> bool {
+    match persistent_hashmap_generation_successor(current) {
+        Some(next) => next > current && next != 0,
+        None => current == u64::MAX,
+    }
+}
+
+#[cfg(test)]
+mod hash_generation_runtime_regressions {
+    use super::*;
+
+    #[test]
+    fn sc030_generation_successor_never_wraps_to_zero() {
+        assert!(generation_successor_is_nonzero_and_monotonic(1));
+        assert!(generation_successor_is_nonzero_and_monotonic(u64::MAX - 1));
+        assert!(generation_successor_is_nonzero_and_monotonic(u64::MAX));
+    }
+}
+
+#[cfg(kani)]
+mod hash_generation_kani_proofs {
+    use super::*;
+
+    /// SC-030 regression: every successful successor is strictly larger and non-zero;
+    /// exhaustion is represented as None rather than wrapping to the shared sentinel.
+    #[kani::proof]
+    fn sc030_generation_token_never_wraps_to_shared_zero() {
+        let current: u64 = kani::any();
+        assert!(generation_successor_is_nonzero_and_monotonic(current));
     }
 }

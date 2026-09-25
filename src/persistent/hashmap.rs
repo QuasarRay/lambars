@@ -254,9 +254,22 @@ pub mod occupancy_histogram {
 static GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 const SHARED_GENERATION: u64 = 0;
 
+/// Computes the next generation value without wrapping into the reserved zero sentinel.
+#[doc(hidden)]
+#[inline]
+pub const fn persistent_hashmap_generation_successor(current: u64) -> Option<u64> {
+    current.checked_add(1)
+}
+
 #[inline]
 fn next_generation() -> u64 {
-    GENERATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    GENERATION_COUNTER
+        .fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            persistent_hashmap_generation_successor,
+        )
+        .expect("PersistentHashMap generation token space exhausted")
 }
 
 // =============================================================================
@@ -281,7 +294,7 @@ const AHASH_SEED: usize = 0x243f_6a88_85a3_08d3_usize;
 /// The hasher is selected based on feature flags:
 /// - `fxhash`: Uses `FxHasher` (fastest, no `DoS` resistance)
 /// - `ahash`: Uses `AHasher` with fixed seed (fast, no `DoS` resistance)
-/// - default: Uses `DefaultHasher` (`SipHash`, has `DoS` resistance)
+/// - default: Uses a process-keyed `RandomState` (SipHash) for HashDoS resistance
 ///
 /// # Priority
 ///
@@ -340,18 +353,21 @@ fn compute_hash<K: Hash + ?Sized>(key: &K) -> u64 {
     std::hash::BuildHasher::hash_one(&*AHASH_STATE, key)
 }
 
-/// Computes the hash of a key using `DefaultHasher` (`SipHash`).
+/// Computes the hash of a key using a process-keyed `RandomState`.
 ///
-/// This is the default hasher with `DoS` resistance, suitable for
-/// handling untrusted input.
+/// The state is initialized once from the platform random source and then reused
+/// so hashes remain stable for the lifetime of the process while remaining
+/// unpredictable to an attacker who does not know the random keys. This restores
+/// the HashDoS protection that direct `DefaultHasher::new()` does not provide.
 #[cfg(all(not(feature = "fxhash"), not(feature = "ahash")))]
 #[inline]
 fn compute_hash<K: Hash + ?Sized>(key: &K) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    hasher.finish()
+    use std::collections::hash_map::RandomState;
+    use std::hash::BuildHasher;
+    use std::sync::LazyLock;
+
+    static DEFAULT_HASH_STATE: LazyLock<RandomState> = LazyLock::new(RandomState::new);
+    DEFAULT_HASH_STATE.hash_one(key)
 }
 
 /// Extracts the index at a given depth from a hash.
