@@ -276,98 +276,38 @@ fn next_generation() -> u64 {
 // Hash computation
 // =============================================================================
 
-/// Fixed seed for ahash to ensure referential transparency.
+/// Hash security mode used by PersistentHashMap.
 ///
-/// Using the fractional part of mathematical constants (pi) as a seed value.
-/// This provides a deterministic seed that produces the same hash values
-/// across process restarts and different machines.
-///
-/// # Warning
-///
-/// This fixed seed removes `DoS` resistance. Only use `ahash` feature
-/// for internal data that is not influenced by external input.
-#[cfg(all(feature = "ahash", not(feature = "fxhash")))]
-const AHASH_SEED: usize = 0x243f_6a88_85a3_08d3_usize;
-
-/// Computes the hash of a key.
-///
-/// The hasher is selected based on feature flags:
-/// - `fxhash`: Uses `FxHasher` (fastest, no `DoS` resistance)
-/// - `ahash`: Uses `AHasher` with fixed seed (fast, no `DoS` resistance)
-/// - default: Uses a process-keyed `RandomState` (SipHash) for HashDoS resistance
-///
-/// # Priority
-///
-/// If both `fxhash` and `ahash` features are enabled, `fxhash` takes priority.
-///
-/// # Warning
-///
-/// When using `fxhash` or `ahash` features, `DoS` resistance is lost.
-/// Use these only in trusted environments where performance is critical
-/// and all keys come from trusted sources.
-///
-/// **Do NOT use `fxhash` or `ahash` when:**
-/// - Keys come from user input
-/// - Keys come from network data
-/// - Keys come from external files
-///
-/// Attackers can craft keys that cause hash collisions, degrading
-/// performance to O(n) per operation (`HashDoS` attack).
-#[cfg(feature = "fxhash")]
-#[inline]
-fn compute_hash<K: Hash + ?Sized>(key: &K) -> u64 {
-    use std::hash::Hasher;
-    let mut hasher = rustc_hash::FxHasher::default();
-    key.hash(&mut hasher);
-    hasher.finish()
+/// Lambars intentionally exposes only the keyed mode. The historical `fxhash`
+/// and `ahash` Cargo feature names are compatibility no-ops and do not select
+/// predictable hash functions.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistentHashSecurityMode {
+    /// Process-keyed SipHash state.
+    KeyedRandomState,
 }
 
-/// Computes the hash of a key using ahash with a fixed seed.
-///
-/// Uses a fixed seed to ensure deterministic behavior within the same
-/// binary execution: calling this function with the same key will always
-/// return the same hash value during program runtime.
-///
-/// # Limitations
-///
-/// Hash values are NOT stable across:
-/// - Different machines or CPU architectures
-/// - Different compiler versions
-/// - Different versions of the ahash crate
-///
-/// Therefore, do NOT use these hash values for:
-/// - Persistence to disk or database
-/// - Cross-process communication
-/// - Network protocols
-///
-/// # Warning
-///
-/// This removes `DoS` resistance. Only use for internal/trusted data.
-#[cfg(all(feature = "ahash", not(feature = "fxhash")))]
-#[inline]
-fn compute_hash<K: Hash + ?Sized>(key: &K) -> u64 {
-    use std::sync::LazyLock;
-    // Static hasher state to avoid repeated initialization
-    static AHASH_STATE: LazyLock<ahash::RandomState> =
-        LazyLock::new(|| ahash::RandomState::with_seed(AHASH_SEED));
-    std::hash::BuildHasher::hash_one(&*AHASH_STATE, key)
+/// Returns the only supported hash-security mode.
+#[doc(hidden)]
+#[must_use]
+pub const fn persistent_hash_security_mode() -> PersistentHashSecurityMode {
+    PersistentHashSecurityMode::KeyedRandomState
 }
 
-/// Computes the hash of a key using a process-keyed `RandomState`.
+/// Computes a process-keyed hash.
 ///
-/// The state is initialized once from the platform random source and then reused
-/// so hashes remain stable for the lifetime of the process while remaining
-/// unpredictable to an attacker who does not know the random keys. This restores
-/// the HashDoS protection that direct `DefaultHasher::new()` does not provide.
-#[cfg(all(not(feature = "fxhash"), not(feature = "ahash")))]
+/// A single `RandomState` is initialized from the platform random source and
+/// reused for the process lifetime. This keeps routing stable while preventing
+/// predictable attacker-selected collision families.
 #[inline]
 fn compute_hash<K: Hash + ?Sized>(key: &K) -> u64 {
     use std::collections::hash_map::RandomState;
     use std::hash::BuildHasher;
     use std::sync::LazyLock;
 
-    static DEFAULT_HASH_STATE: LazyLock<RandomState> = LazyLock::new(RandomState::new);
-    DEFAULT_HASH_STATE.hash_one(key)
+    static HASH_STATE: LazyLock<RandomState> = LazyLock::new(RandomState::new);
+    HASH_STATE.hash_one(key)
 }
 
 /// Extracts the index at a given depth from a hash.
