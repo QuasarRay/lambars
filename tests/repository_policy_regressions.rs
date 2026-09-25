@@ -18,6 +18,9 @@ const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
 const DENY_POLICY: &str = include_str!("../deny.toml");
 const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release.yml");
 const QUALIFICATION: &str = include_str!("../verification/qualification.json");
+const CODEOWNERS: &str = include_str!("../.github/CODEOWNERS");
+const GOVERNANCE: &str = include_str!("../GOVERNANCE.md");
+const MAINTAINERS: &str = include_str!("../MAINTAINERS.md");
 
 #[test]
 fn sc007_security_policy_describes_the_real_unsafe_boundary() {
@@ -172,4 +175,16 @@ fn sc012_sc037_ci_supply_chain_is_immutable_and_fail_closed() {
         assert!(!workflow.contains("git clone --depth"));
         assert!(!workflow.contains("apt-get update || true"));
     }
+}
+
+
+#[test]
+fn sc021_repository_has_explicit_safety_governance_and_ownership() {
+    assert!(CODEOWNERS.contains("* @QuasarRay"));
+    assert!(CODEOWNERS.contains("/verification/ @QuasarRay"));
+    assert!(CODEOWNERS.contains("/.github/workflows/ @QuasarRay"));
+    assert!(MAINTAINERS.contains("Safety-critical responsibilities"));
+    assert!(GOVERNANCE.contains("fail-closed"));
+    assert!(GOVERNANCE.contains("SC-008"));
+    assert!(GOVERNANCE.contains("must not represent single-maintainer approval as independent assurance"));
 }

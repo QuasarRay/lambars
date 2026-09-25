@@ -41,3 +41,26 @@ macro_rules! delegate_kani_verification {
         )+
     };
 }
+
+
+/// Number of findings in the safety-critical qualification register.
+pub const SAFETY_FINDING_COUNT: usize = 40;
+
+/// Bit mask containing every release-blocking SC-001..SC-040 finding.
+pub const SAFETY_REQUIRED_MASK: u64 = (1u64 << SAFETY_FINDING_COUNT) - 1;
+
+/// Returns the bit corresponding to a zero-based safety finding index.
+#[must_use]
+pub const fn safety_finding_bit(index: usize) -> u64 {
+    1u64 << index
+}
+
+/// Fail-closed release qualification predicate.
+///
+/// Bit N is set only when SC-(N+1) is closed by the repository qualification
+/// checker. Unknown high bits are ignored; every one of the 40 required bits
+/// must be present.
+#[must_use]
+pub const fn safety_release_qualified(closed_mask: u64) -> bool {
+    closed_mask & SAFETY_REQUIRED_MASK == SAFETY_REQUIRED_MASK
+}

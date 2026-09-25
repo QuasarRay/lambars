@@ -348,3 +348,75 @@ mod hash_security_mode_regressions {
         assert!(sc029_legacy_feature_combinations_remain_keyed());
     }
 }
+
+
+#[cfg(kani)]
+mod per_finding_release_gate_regressions {
+    use lambars_verification::{safety_finding_bit, safety_release_qualified};
+
+    macro_rules! prove_finding_blocks_release {
+        ($name:ident, $index:expr) => {
+            #[kani::proof]
+            fn $name() {
+                let closed_mask: u64 = kani::any();
+                kani::assume(closed_mask & safety_finding_bit($index) == 0);
+                assert!(!safety_release_qualified(closed_mask));
+            }
+        };
+    }
+
+    prove_finding_blocks_release!(sc001_unresolved_blocks_release, 0);
+    prove_finding_blocks_release!(sc002_unresolved_blocks_release, 1);
+    prove_finding_blocks_release!(sc003_unresolved_blocks_release, 2);
+    prove_finding_blocks_release!(sc004_unresolved_blocks_release, 3);
+    prove_finding_blocks_release!(sc005_unresolved_blocks_release, 4);
+    prove_finding_blocks_release!(sc006_unresolved_blocks_release, 5);
+    prove_finding_blocks_release!(sc007_unresolved_blocks_release, 6);
+    prove_finding_blocks_release!(sc008_unresolved_blocks_release, 7);
+    prove_finding_blocks_release!(sc009_unresolved_blocks_release, 8);
+    prove_finding_blocks_release!(sc010_unresolved_blocks_release, 9);
+    prove_finding_blocks_release!(sc011_unresolved_blocks_release, 10);
+    prove_finding_blocks_release!(sc012_unresolved_blocks_release, 11);
+    prove_finding_blocks_release!(sc013_unresolved_blocks_release, 12);
+    prove_finding_blocks_release!(sc014_unresolved_blocks_release, 13);
+    prove_finding_blocks_release!(sc015_unresolved_blocks_release, 14);
+    prove_finding_blocks_release!(sc016_unresolved_blocks_release, 15);
+    prove_finding_blocks_release!(sc017_unresolved_blocks_release, 16);
+    prove_finding_blocks_release!(sc018_unresolved_blocks_release, 17);
+    prove_finding_blocks_release!(sc019_unresolved_blocks_release, 18);
+    prove_finding_blocks_release!(sc020_unresolved_blocks_release, 19);
+    prove_finding_blocks_release!(sc021_unresolved_blocks_release, 20);
+    prove_finding_blocks_release!(sc022_unresolved_blocks_release, 21);
+    prove_finding_blocks_release!(sc023_unresolved_blocks_release, 22);
+    prove_finding_blocks_release!(sc024_unresolved_blocks_release, 23);
+    prove_finding_blocks_release!(sc025_unresolved_blocks_release, 24);
+    prove_finding_blocks_release!(sc026_unresolved_blocks_release, 25);
+    prove_finding_blocks_release!(sc027_unresolved_blocks_release, 26);
+    prove_finding_blocks_release!(sc028_unresolved_blocks_release, 27);
+    prove_finding_blocks_release!(sc029_unresolved_blocks_release, 28);
+    prove_finding_blocks_release!(sc030_unresolved_blocks_release, 29);
+    prove_finding_blocks_release!(sc031_unresolved_blocks_release, 30);
+    prove_finding_blocks_release!(sc032_unresolved_blocks_release, 31);
+    prove_finding_blocks_release!(sc033_unresolved_blocks_release, 32);
+    prove_finding_blocks_release!(sc034_unresolved_blocks_release, 33);
+    prove_finding_blocks_release!(sc035_unresolved_blocks_release, 34);
+    prove_finding_blocks_release!(sc036_unresolved_blocks_release, 35);
+    prove_finding_blocks_release!(sc037_unresolved_blocks_release, 36);
+    prove_finding_blocks_release!(sc038_unresolved_blocks_release, 37);
+    prove_finding_blocks_release!(sc039_unresolved_blocks_release, 38);
+    prove_finding_blocks_release!(sc040_unresolved_blocks_release, 39);
+}
+
+#[cfg(test)]
+mod release_gate_runtime_regressions {
+    use lambars_verification::{SAFETY_REQUIRED_MASK, safety_finding_bit, safety_release_qualified};
+
+    #[test]
+    fn all_40_findings_are_required_by_the_release_gate() {
+        assert!(safety_release_qualified(SAFETY_REQUIRED_MASK));
+        for index in 0..40 {
+            let missing = SAFETY_REQUIRED_MASK & !safety_finding_bit(index);
+            assert!(!safety_release_qualified(missing), "finding index {index} was not release-blocking");
+        }
+    }
+}

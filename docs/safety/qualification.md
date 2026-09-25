@@ -41,7 +41,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-018 | remediation in branch | safety/06-release-assurance |
 | SC-019 | remediation in branch | safety/06-release-assurance |
 | SC-020 | remediation in branch | safety/06-release-assurance |
-| SC-021 | open | planned governance layer |
+| SC-021 | partial remediation | safety/12-governance: CODEOWNERS + maintainers + fail-closed governance; GitHub enforcement remains SC-008 |
 | SC-022 | remediation in branch | safety/09-release-provenance: explicit package include + cargo package surface checker |
 | SC-023 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-024 | remediation in branch | safety/07-proc-macro-hygiene |
