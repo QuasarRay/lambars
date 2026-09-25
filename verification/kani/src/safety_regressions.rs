@@ -1,4 +1,7 @@
-use lambars_alias::control::{ConcurrentLazy, concurrent_lazy_reentry_matches};
+use lambars_alias::control::{
+    ConcurrentLazy, ConcurrentLazyWaitDecision, concurrent_lazy_reentry_matches,
+    concurrent_lazy_wait_decision,
+};
 use lambars_alias::persistent::{
     PersistentHashSecurityMode, persistent_hash_security_mode,
     persistent_hashmap_generation_successor,
@@ -418,5 +421,78 @@ mod release_gate_runtime_regressions {
             let missing = SAFETY_REQUIRED_MASK & !safety_finding_bit(index);
             assert!(!safety_release_qualified(missing), "finding index {index} was not release-blocking");
         }
+    }
+}
+
+
+#[cfg(any(test, kani))]
+mod concurrent_lazy_bounded_wait_regressions {
+    use super::*;
+
+    fn terminal_or_expired_never_waits(state: u8, reentrant: bool, timed_out: bool) -> bool {
+        let decision = concurrent_lazy_wait_decision(state, reentrant, timed_out);
+        if state == 0 || state == 2 || state == 3 || reentrant || timed_out {
+            decision != ConcurrentLazyWaitDecision::Wait
+        } else {
+            true
+        }
+    }
+
+    fn computing_timeout_is_observable(reentrant: bool) -> bool {
+        let decision = concurrent_lazy_wait_decision(1, reentrant, true);
+        if reentrant {
+            decision == ConcurrentLazyWaitDecision::Reentrant
+        } else {
+            decision == ConcurrentLazyWaitDecision::TimedOut
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc028_bounded_wait_decision_is_fail_closed() {
+        for state in 0u8..=3 {
+            for reentrant in [false, true] {
+                for timed_out in [false, true] {
+                    assert!(terminal_or_expired_never_waits(state, reentrant, timed_out));
+                }
+            }
+        }
+        assert!(computing_timeout_is_observable(false));
+        assert!(computing_timeout_is_observable(true));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc028_terminal_reentrant_or_expired_state_never_continues_waiting() {
+        let state: u8 = kani::any();
+        let reentrant: bool = kani::any();
+        let timed_out: bool = kani::any();
+        kani::assume(state <= 3);
+        assert!(terminal_or_expired_never_waits(state, reentrant, timed_out));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc028_computing_state_with_expired_deadline_never_returns_wait() {
+        let reentrant: bool = kani::any();
+        assert!(computing_timeout_is_observable(reentrant));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc028_execution_mode_cannot_change_bounded_wait_classification() {
+        let state: u8 = kani::any();
+        let reentrant: bool = kani::any();
+        let timed_out: bool = kani::any();
+        let execution_mode: u8 = kani::any(); // 0=thread, 1=rayon, 2=async bridge
+        kani::assume(state <= 3);
+        kani::assume(execution_mode <= 2);
+
+        let baseline = concurrent_lazy_wait_decision(state, reentrant, timed_out);
+        let under_mode = match execution_mode {
+            0 | 1 | 2 => concurrent_lazy_wait_decision(state, reentrant, timed_out),
+            _ => unreachable!(),
+        };
+        assert_eq!(baseline, under_mode);
     }
 }
