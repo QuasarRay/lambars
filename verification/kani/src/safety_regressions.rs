@@ -140,3 +140,37 @@ mod prism_regressions {
         assert!(struct_owned_prism_roundtrip(left, right));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod ordered_unique_set_regressions {
+    use lambars::persistent::OrderedUniqueSet;
+
+    fn normalized_three(a: u8, b: u8, c: u8) -> bool {
+        let set = OrderedUniqueSet::from_sorted_vec(vec![a, b, c, a]);
+        let values = set.to_sorted_vec();
+
+        values.windows(2).all(|window| window[0] < window[1])
+            && values.contains(&a)
+            && values.contains(&b)
+            && values.contains(&c)
+            && values.len() <= 3
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc004_safe_constructor_preserves_order_and_uniqueness() {
+        assert!(normalized_three(3, 1, 2));
+        assert!(normalized_three(1, 1, 1));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    #[kani::unwind(16)]
+    fn sc004_safe_constructor_cannot_create_unsorted_or_duplicate_state() {
+        let a: u8 = kani::any();
+        let b: u8 = kani::any();
+        let c: u8 = kani::any();
+        assert!(normalized_three(a, b, c));
+    }
+}
