@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, DeriveInput, ItemFn, LitStr, Token};
+use syn::{parse_macro_input, DeriveInput, Expr, ItemFn, LitStr, Path, Token};
 
 struct VerificationArgs {
     id: LitStr,
@@ -110,4 +110,68 @@ pub fn dual_verify(input: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+struct BoundaryCase {
+    name: syn::Ident,
+    _eq: Token![=],
+    value: Expr,
+}
+
+impl Parse for BoundaryCase {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        Ok(Self {
+            name: input.parse()?,
+            _eq: input.parse()?,
+            value: input.parse()?,
+        })
+    }
+}
+
+struct BoundaryCasesInput {
+    predicate: Path,
+    _semi: Token![;],
+    cases: syn::punctuated::Punctuated<BoundaryCase, Token![,]>,
+}
+
+impl Parse for BoundaryCasesInput {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        Ok(Self {
+            predicate: input.parse()?,
+            _semi: input.parse()?,
+            cases: syn::punctuated::Punctuated::parse_terminated(input)?,
+        })
+    }
+}
+
+/// Generate canonical runtime tests and identically-named Kani companions for
+/// a family of concrete structural boundaries.
+///
+/// The predicate remains a single reusable implementation; canonical names
+/// become thin delegates. This is intended for branch-factor, inline-capacity,
+/// tree-height, and threshold matrices.
+#[proc_macro]
+pub fn boundary_cases(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as BoundaryCasesInput);
+    let predicate = input.predicate;
+
+    let generated = input.cases.into_iter().map(|case| {
+        let name = case.name;
+        let value = case.value;
+        let kani_name = format_ident!("kani_{}", name);
+        quote! {
+            #[test]
+            fn #name() {
+                assert!(#predicate(#value));
+            }
+
+            #[cfg(kani)]
+            #[kani::proof]
+            fn #kani_name() {
+                assert!(#predicate(#value));
+            }
+        }
+    });
+
+    quote! { #(#generated)* }.into()
 }
