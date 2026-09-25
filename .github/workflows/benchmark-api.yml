@@ -65,10 +65,10 @@ jobs:
           command -v wrk2 && wrk2 -v 2>&1 | head -1 || (echo "ERROR: wrk2 installation failed" && exit 1)
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Checkout main branch for baseline
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
 
@@ -111,7 +111,7 @@ jobs:
           cd ../docker && docker compose -f compose.ci.yaml down -v
 
       - name: Upload baseline artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: benchmark-baseline-${{ github.sha }}
@@ -157,10 +157,10 @@ jobs:
           pip install jsonschema
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Checkout PR branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run Lua compatibility test
         working-directory: benches/api/benchmarks
@@ -233,7 +233,7 @@ jobs:
           ./validate_meta_schema.sh --all --extended results/
 
       - name: Upload PR artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: benchmark-pr-${{ github.sha }}
@@ -268,18 +268,18 @@ jobs:
 
     steps:
       - name: Checkout PR branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           clean: false
 
       - name: Download baseline artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: benchmark-baseline-${{ github.sha }}
           path: artifacts
 
       - name: Download PR artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: benchmark-pr-${{ github.sha }}
           path: artifacts
@@ -311,7 +311,7 @@ jobs:
         # Run on same-repo PRs (not forks), and always run even if compare step fails
         # This ensures regression results are posted to PR even when thresholds are exceeded
         if: always() && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');
@@ -558,10 +558,10 @@ jobs:
           sudo ln -sf /tmp/FlameGraph/flamegraph.pl /usr/local/bin/
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run benchmark
         working-directory: benches/api/benchmarks
@@ -580,7 +580,7 @@ jobs:
           cd ../docker && docker compose -f compose.ci.yaml down -v
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: benchmark-main-${{ matrix.scenario }}-${{ github.sha }}
@@ -625,10 +625,10 @@ jobs:
           sudo ln -sf /tmp/FlameGraph/flamegraph.pl /usr/local/bin/
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run benchmark
         working-directory: benches/api/benchmarks
@@ -647,7 +647,7 @@ jobs:
           cd ../docker && docker compose -f compose.ci.yaml down -v
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: benchmark-manual-${{ github.event.inputs.scenario }}-${{ github.run_id }}
@@ -697,10 +697,10 @@ jobs:
           pip install jsonschema
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run nightly benchmarks
         working-directory: benches/api/benchmarks
@@ -774,7 +774,7 @@ jobs:
           ./validate_meta_schema.sh --all --extended results/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: benchmark-nightly-${{ github.run_id }}
@@ -921,7 +921,7 @@ jobs:
 
       - name: Create baseline release
         if: success()
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           # Use date-based tag per nightly_config.yaml baseline.release_tag_pattern
           tag_name: benchmark-baseline-${{ steps.baseline.outputs.date_tag }}
