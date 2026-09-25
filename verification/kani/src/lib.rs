@@ -4,6 +4,9 @@
 #[cfg(any(test, kani))]
 mod boundary_families;
 
+#[cfg(any(test, kani))]
+mod safety_regressions;
+
 use lambars::control::Either;
 use lambars::typeclass::{Functor, Semigroup};
 
