@@ -32,7 +32,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-009 | remediation in branch | safety/08-ci-assurance: exact Rust 1.92.0 gate |
 | SC-010 | open | requires full semantic coverage/refinement expansion |
 | SC-011 | remediation in branch | safety/09-release-provenance: publish needs qualification + tests + Kani + Verus + evidence |
-| SC-012 | open | planned supply-chain pinning layer |
+| SC-012 | remediation in branch | safety/10-supply-chain-pinning: immutable action SHAs + verified executable downloads |
 | SC-013 | partial remediation | safety/08-ci-assurance: Miri + cargo-audit + cargo-deny; sanitizer/fuzz/CodeQL still open |
 | SC-014 | partial remediation | safety/08-ci-assurance: Linux/macOS/Windows host matrix; architecture matrix still open |
 | SC-015 | remediation in branch | safety/08-ci-assurance: 80% line floor + gating Codecov upload |
@@ -57,7 +57,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-034 | remediation in branch | safety/08-ci-assurance: bounded Loom interleavings + Kani/Verus state invariants |
 | SC-035 | partial remediation | safety/08-ci-assurance: CI-enforced unsafe boundary; root forbid/separate unsafe crate still open |
 | SC-036 | remediation in branch | safety/08-ci-assurance: RustSec + cargo-deny advisory/license/source policy |
-| SC-037 | open | benchmark/reproducibility pinning layer required |
+| SC-037 | remediation in branch | safety/10-supply-chain-pinning: pinned benchmark/profiling tools and fail-closed installs |
 | SC-038 | remediation in branch | safety/09-release-provenance: double-package hash comparison + SBOM + SHA256 + Sigstore attestation |
 | SC-039 | remediation in branch | safety/08-ci-assurance: excluded verifier crates are explicit CI smoke targets |
 | SC-040 | remediation in branch | safety/09-release-provenance: machine-readable 40-item fail-closed release gate |

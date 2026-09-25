@@ -150,3 +150,26 @@ fn sc040_release_is_fail_closed_on_complete_machine_readable_inventory() {
     }
     assert!(RELEASE_WORKFLOW.contains("check_qualification.py"));
 }
+
+
+#[test]
+fn sc012_sc037_ci_supply_chain_is_immutable_and_fail_closed() {
+    assert!(CI_WORKFLOW.contains("check_supply_chain.py"));
+    let workflows = [
+        include_str!("../.github/workflows/benchmark-api.yml"),
+        include_str!("../.github/workflows/benchmark-pr.yml"),
+        include_str!("../.github/workflows/benchmark.yml"),
+        include_str!("../.github/workflows/changelog.yml"),
+        include_str!("../.github/workflows/ci.yml"),
+        include_str!("../.github/workflows/kani-verification.yml"),
+        include_str!("../.github/workflows/labeler.yml"),
+        include_str!("../.github/workflows/profiling.yml"),
+        include_str!("../.github/workflows/release.yml"),
+        include_str!("../.github/workflows/verus-verification.yml"),
+    ];
+    for workflow in workflows {
+        assert!(!workflow.contains("releases/latest"));
+        assert!(!workflow.contains("git clone --depth"));
+        assert!(!workflow.contains("apt-get update || true"));
+    }
+}

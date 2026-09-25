@@ -28,6 +28,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  INFERNO_VERSION: 0.12.8
+  WRK2_COMMIT: 44a94c17d8e6a0bac8559b53da76848e430cb7a7
+  YQ_VERSION: v4.53.6
+  YQ_LINUX_AMD64_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
 
 jobs:
   # ==========================================================================
@@ -39,13 +43,13 @@ jobs:
     if: ${{ github.event.inputs.profile_type == 'all' || github.event.inputs.profile_type == 'criterion' || github.event_name == 'pull_request' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable snapshot
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -56,7 +60,7 @@ jobs:
       - name: Build benchmarks and tools
         run: |
           set -euo pipefail
-          cargo install inferno
+          cargo install inferno --version "${INFERNO_VERSION}" --locked
           cargo build --release --benches
 
           mkdir -p criterion-profiling-tools/bin
@@ -82,7 +86,7 @@ jobs:
           ls -la criterion-profiling-tools/benches/
 
       - name: Upload profiling tools
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: criterion-profiling-tools-${{ github.sha }}
           path: criterion-profiling-tools
@@ -103,14 +107,14 @@ jobs:
         bench: [effect_bench, for_macro_bench, control_bench]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install perf tools
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk || true
+          sudo apt-get update
+          sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk
           echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid
           echo '0' | sudo tee /proc/sys/kernel/kptr_restrict
 
@@ -189,7 +193,7 @@ jobs:
           echo "perf capability verified: $(wc -l < "${probe_script}") lines captured"
 
       - name: Download profiling tools
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: criterion-profiling-tools-${{ github.sha }}
           path: criterion-profiling-tools
@@ -265,7 +269,7 @@ jobs:
             "profiling-results/criterion/${{ matrix.bench }}"
 
       - name: Upload profiling artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: criterion-profiling-${{ github.sha }}-${{ matrix.bench }}
           path: profiling-results/criterion/${{ matrix.bench }}/
@@ -281,16 +285,16 @@ jobs:
     if: ${{ github.event.inputs.profile_type == 'all' || github.event.inputs.profile_type == 'iai' || github.event_name == 'pull_request' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable snapshot
 
       - name: Install Valgrind
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
+          sudo apt-get update
           sudo apt-get install -y valgrind
 
       - name: Install iai-callgrind-runner
@@ -298,10 +302,10 @@ jobs:
           # Get iai-callgrind version from Cargo.lock to ensure version match
           IAI_VERSION=$(grep -A1 'name = "iai-callgrind"' Cargo.lock | grep version | head -1 | sed 's/.*"\(.*\)"/\1/')
           echo "Installing iai-callgrind-runner version $IAI_VERSION"
-          cargo install iai-callgrind-runner --version "$IAI_VERSION"
+          cargo install iai-callgrind-runner --version "$IAI_VERSION" --locked
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -352,7 +356,7 @@ jobs:
           done
 
       - name: Upload iai-callgrind artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: iai-profiling-${{ github.sha }}
           path: profiling-results/iai/
@@ -369,7 +373,7 @@ jobs:
       scenarios: ${{ steps.matrix.outputs.scenarios }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build scenario matrix
         id: matrix
@@ -397,15 +401,15 @@ jobs:
     if: ${{ github.event.inputs.profile_type == 'all' || github.event.inputs.profile_type == 'api' || github.event_name == 'pull_request' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable snapshot
 
       - name: Build API server and tools
         run: |
           set -euo pipefail
-          cargo install inferno
+          cargo install inferno --version "${INFERNO_VERSION}" --locked
           cd benches/api
           CARGO_PROFILE_RELEASE_DEBUG=true cargo build --release --bin task-management-benchmark-api
           cd ../..
@@ -415,7 +419,7 @@ jobs:
           chmod +x api-profiling-tools/bin/*
 
       - name: Upload profiling tools
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: api-profiling-tools-${{ github.sha }}
           path: api-profiling-tools/bin
@@ -436,20 +440,27 @@ jobs:
         scenario: ${{ fromJSON(needs.api-profiling-matrix.outputs.scenarios) }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install dependencies
         run: |
           set -euo pipefail
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git yq linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
+          # Install checksum-verified yq release
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Verify wrk2 installation (wrk2 -v exits non-zero even on success, so
           # only check that the binary exists and is executable).
           if ! command -v wrk2 &>/dev/null; then
@@ -535,7 +546,7 @@ jobs:
           echo "perf capability verified: $(wc -l < "${probe_script}") lines captured"
 
       - name: Download profiling tools
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: api-profiling-tools-${{ github.sha }}
           path: api-profiling-tools/bin
@@ -692,7 +703,7 @@ jobs:
             "profiling-results/api/${{ steps.scenario.outputs.name }}"
 
       - name: Upload API profiling artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: api-profiling-${{ github.sha }}-${{ steps.scenario.outputs.name }}
           path: profiling-results/api/${{ steps.scenario.outputs.name }}/
@@ -712,10 +723,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: profiling-artifacts
 
@@ -814,7 +825,7 @@ jobs:
 
       - name: Upload invariant report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: metrics-invariant-report
           path: profiling-artifacts/invariant-report.txt
@@ -882,7 +893,7 @@ jobs:
           shopt -u nullglob
 
       - name: Post profiling summary to PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');
@@ -1000,7 +1011,7 @@ jobs:
             }
 
       - name: Upload Criterion profiling aggregate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: criterion-profiling-all-${{ github.sha }}
@@ -1009,7 +1020,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload API profiling aggregate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: api-profiling-all-${{ github.sha }}
@@ -1019,7 +1030,7 @@ jobs:
 
       - name: Delete per-scenario profiling artifacts
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const owner = context.repo.owner;
