@@ -28,6 +28,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  INFERNO_VERSION: 0.12.8
+  WRK2_COMMIT: 44a94c17d8e6a0bac8559b53da76848e430cb7a7
+  YQ_VERSION: v4.53.6
+  YQ_LINUX_AMD64_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
 
 jobs:
   # ==========================================================================
@@ -56,7 +60,7 @@ jobs:
       - name: Build benchmarks and tools
         run: |
           set -euo pipefail
-          cargo install inferno
+          cargo install inferno --version "${INFERNO_VERSION}" --locked
           cargo build --release --benches
 
           mkdir -p criterion-profiling-tools/bin
@@ -109,8 +113,8 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk || true
+          sudo apt-get update
+          sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk
           echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid
           echo '0' | sudo tee /proc/sys/kernel/kptr_restrict
 
@@ -290,7 +294,7 @@ jobs:
         run: |
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
+          sudo apt-get update
           sudo apt-get install -y valgrind
 
       - name: Install iai-callgrind-runner
@@ -298,7 +302,7 @@ jobs:
           # Get iai-callgrind version from Cargo.lock to ensure version match
           IAI_VERSION=$(grep -A1 'name = "iai-callgrind"' Cargo.lock | grep version | head -1 | sed 's/.*"\(.*\)"/\1/')
           echo "Installing iai-callgrind-runner version $IAI_VERSION"
-          cargo install iai-callgrind-runner --version "$IAI_VERSION"
+          cargo install iai-callgrind-runner --version "$IAI_VERSION" --locked
 
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -405,7 +409,7 @@ jobs:
       - name: Build API server and tools
         run: |
           set -euo pipefail
-          cargo install inferno
+          cargo install inferno --version "${INFERNO_VERSION}" --locked
           cd benches/api
           CARGO_PROFILE_RELEASE_DEBUG=true cargo build --release --bin task-management-benchmark-api
           cd ../..
@@ -443,13 +447,20 @@ jobs:
           set -euo pipefail
           # Remove problematic Azure CLI repository that may return 403
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list || true
-          sudo apt-get update || true
-          sudo apt-get install -y build-essential libssl-dev git yq linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk || true
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev git linux-tools-common linux-tools-generic linux-tools-$(uname -r) gawk
           # Build wrk2 from source (REQUIRED for rate control)
-          git clone --depth 1 https://github.com/giltene/wrk2.git /tmp/wrk2
+          git init /tmp/wrk2
+          git -C /tmp/wrk2 remote add origin https://github.com/giltene/wrk2.git
+          git -C /tmp/wrk2 fetch --depth 1 origin "${WRK2_COMMIT}"
+          git -C /tmp/wrk2 checkout --detach "${WRK2_COMMIT}"
           cd /tmp/wrk2 && make -j$(nproc) && sudo cp wrk /usr/local/bin/wrk2
           # Create wrk symlink for backward compatibility
           sudo ln -sf /usr/local/bin/wrk2 /usr/local/bin/wrk
+          # Install checksum-verified yq release
+          curl --fail --location --output /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_LINUX_AMD64_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           # Verify wrk2 installation (wrk2 -v exits non-zero even on success, so
           # only check that the binary exists and is executable).
           if ! command -v wrk2 &>/dev/null; then
