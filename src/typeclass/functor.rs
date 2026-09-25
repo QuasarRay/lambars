@@ -134,9 +134,9 @@ pub trait Functor: TypeConstructor {
     fn replace<B>(self, value: B) -> Self::WithType<B>
     where
         Self: Sized,
-        B: 'static,
+        B: Clone + 'static,
     {
-        self.fmap(|_| value)
+        self.fmap(|_| value.clone())
     }
 
     /// Discards the value inside the functor, replacing it with `()`.
@@ -293,7 +293,7 @@ impl<T, E: Clone> Functor for Result<T, E> {
 
 impl<T, E: Clone> FunctorRef for Result<T, E> {
     #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Result<B, E>
+    fn fmap_ref<B, F>(&self, mut function: F) -> Result<B, E>
     where
         F: FnMut(&T) -> B,
     {
@@ -351,7 +351,7 @@ impl<T> FunctorMut for Vec<T> {
 
 impl<T> Functor for Box<T> {
     #[inline]
-    fn fmap<B, F>(self, function: F) -> Box<B>
+    fn fmap<B, F>(self, mut function: F) -> Box<B>
     where
         F: FnMut(T) -> B,
     {
@@ -361,7 +361,7 @@ impl<T> Functor for Box<T> {
 
 impl<T> FunctorRef for Box<T> {
     #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Box<B>
+    fn fmap_ref<B, F>(&self, mut function: F) -> Box<B>
     where
         F: FnMut(&T) -> B,
     {
@@ -375,7 +375,7 @@ impl<T> FunctorRef for Box<T> {
 
 impl<A> Functor for Identity<A> {
     #[inline]
-    fn fmap<B, F>(self, function: F) -> Identity<B>
+    fn fmap<B, F>(self, mut function: F) -> Identity<B>
     where
         F: FnMut(A) -> B,
     {
@@ -385,7 +385,7 @@ impl<A> Functor for Identity<A> {
 
 impl<A> FunctorRef for Identity<A> {
     #[inline]
-    fn fmap_ref<B, F>(&self, function: F) -> Identity<B>
+    fn fmap_ref<B, F>(&self, mut function: F) -> Identity<B>
     where
         F: FnMut(&A) -> B,
     {
