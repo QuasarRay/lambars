@@ -45,7 +45,7 @@ jobs:
       - name: Get iai-callgrind version
         id: iai-version
         run: |
-          IAI_VERSION=$(grep -A1 'name = "iai-callgrind"' Cargo.lock | grep version | head -1 | sed 's/.*"\(.*\)"/\1/')
+          IAI_VERSION=$(sed -n 's/^iai-callgrind = "=\([^"]*\)"/\1/p' benches/iai/Cargo.toml)
           echo "version=$IAI_VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust toolchain
@@ -92,8 +92,14 @@ jobs:
         run: |
           if [ -d "benches/iai" ]; then
             echo "benchmarks_exist=true" >> $GITHUB_OUTPUT
-            # Extract IAI benchmark names from Cargo.toml
-            MAIN_BENCHMARKS=$(grep -B2 'path = "benches/iai/' Cargo.toml | grep 'name = ' | sed 's/.*"\(.*\)"/\1/' | tr '\n' ' ')
+            if [ -f "benches/iai/Cargo.toml" ]; then
+              MAIN_MANIFEST="benches/iai/Cargo.toml"
+              MAIN_BENCHMARKS=$(grep -A2 '^\[\[bench\]\]' "$MAIN_MANIFEST" | grep '^name = ' | sed 's/.*"\(.*\)"/\1/' | tr '\n' ' ')
+            else
+              MAIN_MANIFEST="Cargo.toml"
+              MAIN_BENCHMARKS=$(grep -B2 'path = "benches/iai/' Cargo.toml | grep 'name = ' | sed 's/.*"\(.*\)"/\1/' | tr '\n' ' ')
+            fi
+            echo "main_manifest=$MAIN_MANIFEST" >> $GITHUB_OUTPUT
             echo "main_benchmarks=$MAIN_BENCHMARKS" >> $GITHUB_OUTPUT
             echo "Main branch IAI benchmarks: $MAIN_BENCHMARKS"
           else
@@ -107,15 +113,16 @@ jobs:
         run: |
           set -eo pipefail
           BENCHMARKS="${{ steps.check-benchmarks.outputs.main_benchmarks }}"
-          echo "Running baseline benchmarks: $BENCHMARKS"
+          MANIFEST="${{ steps.check-benchmarks.outputs.main_manifest }}"
+          echo "Running baseline benchmarks from $MANIFEST: $BENCHMARKS"
           FIRST=true
           for bench in $BENCHMARKS; do
             echo "Running $bench..."
             if [ "$FIRST" = true ]; then
-              cargo bench --bench "$bench" -- --save-baseline=main 2>&1 | tee baseline_output.txt
+              cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --save-baseline=main 2>&1 | tee baseline_output.txt
               FIRST=false
             else
-              cargo bench --bench "$bench" -- --save-baseline=main 2>&1 | tee -a baseline_output.txt
+              cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --save-baseline=main 2>&1 | tee -a baseline_output.txt
             fi
           done
 
@@ -126,8 +133,8 @@ jobs:
 
       - name: Update iai-callgrind-runner for PR branch if needed
         run: |
-          # Get iai-callgrind version from PR branch's Cargo.lock
-          PR_IAI_VERSION=$(grep -A1 'name = "iai-callgrind"' Cargo.lock | grep version | head -1 | sed 's/.*"\(.*\)"/\1/')
+          # Get the exact iai-callgrind version from the isolated benchmark manifest.
+          PR_IAI_VERSION=$(sed -n 's/^iai-callgrind = "=\([^"]*\)"/\1/p' benches/iai/Cargo.toml)
           INSTALLED_VERSION=$(iai-callgrind-runner --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
 
           echo "PR branch iai-callgrind version: $PR_IAI_VERSION"
@@ -143,8 +150,8 @@ jobs:
       - name: Get PR branch benchmark list
         id: pr-benchmarks
         run: |
-          # Extract IAI benchmark names from PR branch's Cargo.toml
-          PR_BENCHMARKS=$(grep -B2 'path = "benches/iai/' Cargo.toml | grep 'name = ' | sed 's/.*"\(.*\)"/\1/' | tr '\n' ' ')
+          # Extract IAI benchmark names from the isolated benchmark manifest.
+          PR_BENCHMARKS=$(grep -A2 '^\[\[bench\]\]' benches/iai/Cargo.toml | grep '^name = ' | sed 's/.*"\(.*\)"/\1/' | tr '\n' ' ')
           echo "pr_benchmarks=$PR_BENCHMARKS" >> $GITHUB_OUTPUT
           echo "PR branch IAI benchmarks: $PR_BENCHMARKS"
 
@@ -171,6 +178,7 @@ jobs:
         run: |
           set -eo pipefail
           COMMON_BENCHMARKS="${{ steps.pr-benchmarks.outputs.common_benchmarks }}"
+          MANIFEST="benches/iai/Cargo.toml"
 
           if [ -n "$COMMON_BENCHMARKS" ]; then
             echo "Running benchmarks with baseline comparison: $COMMON_BENCHMARKS"
@@ -178,10 +186,10 @@ jobs:
             for bench in $COMMON_BENCHMARKS; do
               echo "Running $bench with baseline..."
               if [ "$FIRST" = true ]; then
-                cargo bench --bench "$bench" -- --baseline=main 2>&1 | tee benchmark_output.txt
+                cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --baseline=main 2>&1 | tee benchmark_output.txt
                 FIRST=false
               else
-                cargo bench --bench "$bench" -- --baseline=main 2>&1 | tee -a benchmark_output.txt
+                cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --baseline=main 2>&1 | tee -a benchmark_output.txt
               fi
             done
           else
@@ -193,6 +201,7 @@ jobs:
       - name: Run PR benchmarks without baseline (new benchmarks)
         run: |
           set -eo pipefail
+          MANIFEST="benches/iai/Cargo.toml"
 
           # If no baseline exists at all, run all PR benchmarks
           if [ "${{ steps.check-benchmarks.outputs.benchmarks_exist }}" == "false" ]; then
@@ -202,10 +211,10 @@ jobs:
             for bench in $PR_BENCHMARKS; do
               echo "Running $bench (no baseline)..."
               if [ "$FIRST" = true ]; then
-                cargo bench --bench "$bench" -- --save-baseline=pr 2>&1 | tee benchmark_output.txt
+                cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --save-baseline=pr 2>&1 | tee benchmark_output.txt
                 FIRST=false
               else
-                cargo bench --bench "$bench" -- --save-baseline=pr 2>&1 | tee -a benchmark_output.txt
+                cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --save-baseline=pr 2>&1 | tee -a benchmark_output.txt
               fi
             done
           else
@@ -224,10 +233,10 @@ jobs:
               for bench in $NEW_BENCHMARKS; do
                 echo "Running $bench (new benchmark)..."
                 if [ "$FIRST" = true ]; then
-                  cargo bench --bench "$bench" -- --save-baseline=pr 2>&1 | tee benchmark_output.txt
+                  cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --save-baseline=pr 2>&1 | tee benchmark_output.txt
                   FIRST=false
                 else
-                  cargo bench --bench "$bench" -- --save-baseline=pr 2>&1 | tee -a benchmark_output.txt
+                  cargo bench --manifest-path "$MANIFEST" --bench "$bench" -- --save-baseline=pr 2>&1 | tee -a benchmark_output.txt
                 fi
               done
             else

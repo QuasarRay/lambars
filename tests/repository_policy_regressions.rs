@@ -18,6 +18,8 @@ const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
 const DENY_POLICY: &str = include_str!("../deny.toml");
 const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release.yml");
 const QUALIFICATION: &str = include_str!("../verification/qualification.json");
+const ROOT_LOCK: &str = include_str!("../Cargo.lock");
+const IAI_MANIFEST: &str = include_str!("../benches/iai/Cargo.toml");
 const CODEOWNERS: &str = include_str!("../.github/CODEOWNERS");
 const GOVERNANCE: &str = include_str!("../GOVERNANCE.md");
 const MAINTAINERS: &str = include_str!("../MAINTAINERS.md");
@@ -187,4 +189,37 @@ fn sc021_repository_has_explicit_safety_governance_and_ownership() {
     assert!(GOVERNANCE.contains("fail-closed"));
     assert!(GOVERNANCE.contains("SC-008"));
     assert!(GOVERNANCE.contains("must not represent single-maintainer approval as independent assurance"));
+}
+
+
+#[test]
+fn sc036_root_qualification_graph_excludes_audited_advisories() {
+    let forbidden = [
+        ("crossbeam-epoch", "0.9.18"),
+        ("rand", "0.9.2"),
+        ("anyhow", "1.0.100"),
+        ("paste", "1.0.15"),
+        ("bincode", "1.3.3"),
+        ("proc-macro-error2", "2.0.1"),
+    ];
+
+    for (name, version) in forbidden {
+        let package = format!("name = \"{name}\"\nversion = \"{version}\"");
+        assert!(
+            !ROOT_LOCK.contains(&package),
+            "audited advisory package returned to root lock: {name} {version}"
+        );
+    }
+
+    assert!(ROOT_LOCK.contains("name = \"crossbeam-epoch\"\nversion = \"0.9.21\""));
+    assert!(ROOT_LOCK.contains("name = \"rand\"\nversion = \"0.9.5\""));
+    assert!(ROOT_LOCK.contains("name = \"anyhow\"\nversion = \"1.0.104\""));
+    assert!(ROOT_LOCK.contains("name = \"pastey\"\nversion = \"0.2.3\""));
+}
+
+#[test]
+fn sc037_profiler_dependencies_are_isolated_from_release_workspace() {
+    assert!(ROOT_MANIFEST.contains("\"benches/iai\""));
+    assert!(!ROOT_MANIFEST.contains("iai-callgrind ="));
+    assert!(IAI_MANIFEST.contains("iai-callgrind = \"=0.16.1\""));
 }

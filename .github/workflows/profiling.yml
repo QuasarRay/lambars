@@ -299,8 +299,8 @@ jobs:
 
       - name: Install iai-callgrind-runner
         run: |
-          # Get iai-callgrind version from Cargo.lock to ensure version match
-          IAI_VERSION=$(grep -A1 'name = "iai-callgrind"' Cargo.lock | grep version | head -1 | sed 's/.*"\(.*\)"/\1/')
+          # Get the exact iai-callgrind version from the isolated benchmark manifest.
+          IAI_VERSION=$(sed -n 's/^iai-callgrind = "=\([^"]*\)"/\1/p' benches/iai/Cargo.toml)
           echo "Installing iai-callgrind-runner version $IAI_VERSION"
           cargo install iai-callgrind-runner --version "$IAI_VERSION" --locked
 
@@ -320,11 +320,11 @@ jobs:
           # Run iai benchmarks
           for bench in persistent_vector_iai effect_iai scenario_iai ordered_unique_set_iai; do
             echo "=== Running $bench ==="
-            cargo bench --bench $bench 2>&1 | tee profiling-results/iai/${bench}.log || true
+            cargo bench --manifest-path benches/iai/Cargo.toml --bench $bench 2>&1 | tee profiling-results/iai/${bench}.log || true
           done
 
           # Copy callgrind output files
-          find target -name "callgrind.out.*" -exec cp {} profiling-results/iai/ \; 2>/dev/null || true
+          find benches/iai/target -name "callgrind.out.*" -exec cp {} profiling-results/iai/ \; 2>/dev/null || true
 
       - name: Generate iai-callgrind annotations
         run: |

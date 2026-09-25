@@ -56,8 +56,8 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-033 | open | Kani coverage expansion required |
 | SC-034 | remediation in branch | safety/08-ci-assurance: bounded Loom interleavings + Kani/Verus state invariants |
 | SC-035 | partial remediation | safety/08-ci-assurance: CI-enforced unsafe boundary; root forbid/separate unsafe crate still open |
-| SC-036 | remediation in branch | safety/08-ci-assurance: RustSec + cargo-deny advisory/license/source policy |
-| SC-037 | remediation in branch | safety/10-supply-chain-pinning: pinned benchmark/profiling tools and fail-closed installs |
+| SC-036 | remediation in branch | safety/15-dependency-remediation: patched root lock, maintained paste fork, profiler-only advisories isolated; RustSec remains fail-closed |
+| SC-037 | remediation in branch | safety/15-dependency-remediation: IAI profiler in standalone workspace with exact version; workflows use isolated manifest |
 | SC-038 | remediation in branch | safety/09-release-provenance: double-package hash comparison + SBOM + SHA256 + Sigstore attestation |
 | SC-039 | remediation in branch | safety/08-ci-assurance: excluded verifier crates are explicit CI smoke targets |
 | SC-040 | remediation in branch | safety/09-release-provenance: machine-readable 40-item fail-closed release gate |
