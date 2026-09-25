@@ -1,4 +1,4 @@
-use lambars::persistent::{PersistentHashMap, PersistentVector};
+use lambars_alias::persistent::{PersistentHashMap, PersistentVector};
 use lambars_verification::boundary_cases;
 use std::collections::HashMap;
 
