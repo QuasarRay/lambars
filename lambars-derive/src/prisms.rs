@@ -193,7 +193,8 @@ fn generate_multi_field_tuple_prism(
     // Generate variant construction
     let variant_construct = quote! { Self::#variant_name(#(#pattern_vars),*) };
 
-    let variant_doc = format!("Returns an owned-only prism focusing on the `{variant_name}` variant.");
+    let variant_doc =
+        format!("Returns an owned-only prism focusing on the `{variant_name}` variant.");
     let lambars = crate::lambars_crate_path();
 
     quote! {
@@ -250,7 +251,8 @@ fn generate_struct_variant_prism(
         Self::#variant_name { #(#field_names),* }
     };
 
-    let variant_doc = format!("Returns an owned-only prism focusing on the `{variant_name}` variant.");
+    let variant_doc =
+        format!("Returns an owned-only prism focusing on the `{variant_name}` variant.");
     let lambars = crate::lambars_crate_path();
 
     quote! {
