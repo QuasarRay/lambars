@@ -163,10 +163,11 @@ fn generate_single_field_tuple_prism(
     }
 }
 
-/// Generates a prism for a tuple variant with multiple fields.
+/// Generates an owned-only prism for a tuple variant with multiple fields.
 ///
-/// Note: Due to Rust's enum layout, `preview` always returns `None` for
-/// multi-field tuple variants. Use `preview_owned` instead.
+/// Rust does not store these fields as an independent tuple object, so returning
+/// `Prism<Self, (..)> ` would make borrowed `preview` impossible and violate
+/// the Prism preview/review law.
 fn generate_multi_field_tuple_prism(
     _enum_name: &Ident,
     variant_name: &Ident,
@@ -187,22 +188,14 @@ fn generate_multi_field_tuple_prism(
     let variant_construct = quote! { Self::#variant_name(#(#pattern_vars),*) };
 
     quote! {
-        /// Returns a prism focusing on the `#variant_name` variant.
+        /// Returns an owned-only prism focusing on the `#variant_name` variant.
         ///
-        /// **Note**: For multi-field tuple variants, `preview` always returns `None`
-        /// because Rust's enum layout doesn't store the fields as a tuple in memory.
-        /// Use `preview_owned` instead to extract the values.
-        ///
-        /// This prism provides review and preview_owned access to the variant's values as a tuple.
+        /// Multi-field variants cannot provide a lawful borrowed tuple reference,
+        /// so this returns `OwnedPrism` rather than `Prism`.
         #[inline]
         #[must_use]
-        pub fn #method_name() -> impl ::lambars::optics::Prism<Self, #tuple_type> + Clone {
-            ::lambars::optics::FunctionPrism::new(
-                // preview always returns None for multi-field variants
-                // because we cannot return a reference to a tuple that doesn't exist in memory
-                |_source: &Self| -> Option<&#tuple_type> {
-                    None
-                },
+        pub fn #method_name() -> impl ::lambars::optics::OwnedPrism<Self, #tuple_type> + Clone {
+            ::lambars::optics::FunctionOwnedPrism::new(
                 |tuple: #tuple_type| {
                     let #tuple_construct = tuple;
                     #variant_construct
@@ -217,10 +210,10 @@ fn generate_multi_field_tuple_prism(
     }
 }
 
-/// Generates a prism for a struct variant.
+/// Generates an owned-only prism for a struct variant.
 ///
-/// Note: Due to Rust's enum layout, `preview` always returns `None` for
-/// struct variants. Use `preview_owned` instead.
+/// Rust does not store the fields as an independent tuple object, so this shape
+/// cannot lawfully implement borrowed `Prism<Self, tuple>`.
 fn generate_struct_variant_prism(
     _enum_name: &Ident,
     variant_name: &Ident,
@@ -249,22 +242,14 @@ fn generate_struct_variant_prism(
     };
 
     quote! {
-        /// Returns a prism focusing on the `#variant_name` variant.
+        /// Returns an owned-only prism focusing on the `#variant_name` variant.
         ///
-        /// **Note**: For struct variants, `preview` always returns `None`
-        /// because Rust's enum layout doesn't store the fields as a tuple in memory.
-        /// Use `preview_owned` instead to extract the values.
-        ///
-        /// This prism provides review and preview_owned access to the variant's fields as a tuple.
+        /// Struct variants cannot provide a lawful borrowed tuple reference,
+        /// so this returns `OwnedPrism` rather than `Prism`.
         #[inline]
         #[must_use]
-        pub fn #method_name() -> impl ::lambars::optics::Prism<Self, #tuple_type> + Clone {
-            ::lambars::optics::FunctionPrism::new(
-                // preview always returns None for struct variants
-                // because we cannot return a reference to a tuple that doesn't exist in memory
-                |_source: &Self| -> Option<&#tuple_type> {
-                    None
-                },
+        pub fn #method_name() -> impl ::lambars::optics::OwnedPrism<Self, #tuple_type> + Clone {
+            ::lambars::optics::FunctionOwnedPrism::new(
                 |tuple: #tuple_type| {
                     let (#(#tuple_vars),*) = tuple;
                     #struct_construct

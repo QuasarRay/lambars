@@ -46,6 +46,114 @@
 
 use std::marker::PhantomData;
 
+/// An owned-only prism for variants whose focused value cannot be borrowed as a
+/// contiguous value from the source representation.
+///
+/// This abstraction exists for enum variants such as `Variant(A, B)` or
+/// `Variant { a: A, b: B }`, where Rust does not store an independent
+/// `(A, B)` object that can be returned by reference.
+///
+/// # Law
+///
+/// Every `OwnedPrism` must satisfy the owned preview/review round trip:
+///
+/// ```text
+/// prism.preview_owned(prism.review(value)) == Some(value)
+/// ```
+pub trait OwnedPrism<S, A> {
+    /// Constructs the source value for this variant.
+    fn review(&self, value: A) -> S;
+
+    /// Attempts to extract the focused value by taking ownership of the source.
+    fn preview_owned(&self, source: S) -> Option<A>;
+
+    /// Modifies the focused value when the source matches this variant.
+    fn modify_option<F>(&self, source: S, function: F) -> Option<S>
+    where
+        F: FnOnce(A) -> A,
+    {
+        self.preview_owned(source)
+            .map(|value| self.review(function(value)))
+    }
+
+    /// Modifies the focused value, returning the original source when it does not match.
+    fn modify_or_identity<F>(&self, source: S, function: F) -> S
+    where
+        F: FnOnce(A) -> A,
+        S: Clone,
+    {
+        self.modify_option(source.clone(), function)
+            .unwrap_or(source)
+    }
+}
+
+/// An `OwnedPrism` implemented by review and owned-preview functions.
+pub struct FunctionOwnedPrism<S, A, Re, PrOwned>
+where
+    Re: Fn(A) -> S,
+    PrOwned: Fn(S) -> Option<A>,
+{
+    review_function: Re,
+    preview_owned_function: PrOwned,
+    _marker: PhantomData<(S, A)>,
+}
+
+impl<S, A, Re, PrOwned> FunctionOwnedPrism<S, A, Re, PrOwned>
+where
+    Re: Fn(A) -> S,
+    PrOwned: Fn(S) -> Option<A>,
+{
+    /// Creates an owned-only prism from review and owned-preview functions.
+    #[must_use]
+    pub const fn new(review_function: Re, preview_owned_function: PrOwned) -> Self {
+        Self {
+            review_function,
+            preview_owned_function,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<S, A, Re, PrOwned> OwnedPrism<S, A> for FunctionOwnedPrism<S, A, Re, PrOwned>
+where
+    Re: Fn(A) -> S,
+    PrOwned: Fn(S) -> Option<A>,
+{
+    fn review(&self, value: A) -> S {
+        (self.review_function)(value)
+    }
+
+    fn preview_owned(&self, source: S) -> Option<A> {
+        (self.preview_owned_function)(source)
+    }
+}
+
+impl<S, A, Re, PrOwned> Clone for FunctionOwnedPrism<S, A, Re, PrOwned>
+where
+    Re: Fn(A) -> S + Clone,
+    PrOwned: Fn(S) -> Option<A> + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            review_function: self.review_function.clone(),
+            preview_owned_function: self.preview_owned_function.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<S, A, Re, PrOwned> std::fmt::Debug for FunctionOwnedPrism<S, A, Re, PrOwned>
+where
+    Re: Fn(A) -> S,
+    PrOwned: Fn(S) -> Option<A>,
+{
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FunctionOwnedPrism")
+            .finish_non_exhaustive()
+    }
+}
+
 /// A Prism focuses on a single variant of an enum.
 ///
 /// # Type Parameters
