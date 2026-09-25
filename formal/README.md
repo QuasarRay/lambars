@@ -16,3 +16,7 @@ This tree is the shared metaprogramming and metaverification layer for the produ
 - `lambars-spec`: backend-neutral specification registry and declarative proof combinators.
 - `lambars-formal-macros`: proc-macro, proc-macro2, attribute, derive, and delegate metaprogramming for proof adapters.
 - verifier-specific crates are layered on top so ordinary Cargo builds remain independent of verifier toolchains.
+
+## Generated-code formatting
+
+Formal branches are automatically formatted with `cargo fmt --all` by the `Formal Autoformat` workflow. Bot-authored formatting commits are excluded from the workflow trigger to avoid loops.
