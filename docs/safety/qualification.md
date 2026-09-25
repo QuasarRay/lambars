@@ -43,8 +43,8 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-020 | remediation in branch | safety/06-release-assurance |
 | SC-021 | open | planned governance layer |
 | SC-022 | open | planned package-content gate |
-| SC-023 | open | planned proc-macro hygiene layer |
-| SC-024 | open | planned proc-macro documentation layer |
+| SC-023 | remediation in branch | safety/07-proc-macro-hygiene |
+| SC-024 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-025 | remediation in branch | safety/06-release-assurance |
 | SC-026 | open | planned panic/totality review layer |
 | SC-027 | open | planned runtime-fallibility layer |

@@ -107,15 +107,18 @@ fn generate_unit_variant_prism(
     variant_name: &Ident,
     method_name: &Ident,
 ) -> TokenStream2 {
+    let variant_doc = format!("Returns a prism focusing on the `{variant_name}` variant.");
+    let lambars = crate::lambars_crate_path();
+
     quote! {
-        /// Returns a prism focusing on the `#variant_name` variant.
+        #[doc = #variant_doc]
         ///
         /// This prism provides preview/review access to the variant.
         /// For unit variants, the target type is `()`.
         #[inline]
         #[must_use]
-        pub fn #method_name() -> impl ::lambars::optics::Prism<Self, ()> + Clone {
-            ::lambars::optics::FunctionPrism::new(
+        pub fn #method_name() -> impl #lambars::optics::Prism<Self, ()> + Clone {
+            #lambars::optics::FunctionPrism::new(
                 |source: &Self| match source {
                     Self::#variant_name => Some(&()),
                     #[allow(unreachable_patterns)]
@@ -139,14 +142,17 @@ fn generate_single_field_tuple_prism(
     method_name: &Ident,
     field_type: &syn::Type,
 ) -> TokenStream2 {
+    let variant_doc = format!("Returns a prism focusing on the `{variant_name}` variant.");
+    let lambars = crate::lambars_crate_path();
+
     quote! {
-        /// Returns a prism focusing on the `#variant_name` variant.
+        #[doc = #variant_doc]
         ///
         /// This prism provides preview/review access to the variant's value.
         #[inline]
         #[must_use]
-        pub fn #method_name() -> impl ::lambars::optics::Prism<Self, #field_type> + Clone {
-            ::lambars::optics::FunctionPrism::new(
+        pub fn #method_name() -> impl #lambars::optics::Prism<Self, #field_type> + Clone {
+            #lambars::optics::FunctionPrism::new(
                 |source: &Self| match source {
                     Self::#variant_name(value) => Some(value),
                     #[allow(unreachable_patterns)]
@@ -187,15 +193,18 @@ fn generate_multi_field_tuple_prism(
     // Generate variant construction
     let variant_construct = quote! { Self::#variant_name(#(#pattern_vars),*) };
 
+    let variant_doc = format!("Returns an owned-only prism focusing on the `{variant_name}` variant.");
+    let lambars = crate::lambars_crate_path();
+
     quote! {
-        /// Returns an owned-only prism focusing on the `#variant_name` variant.
+        #[doc = #variant_doc]
         ///
         /// Multi-field variants cannot provide a lawful borrowed tuple reference,
         /// so this returns `OwnedPrism` rather than `Prism`.
         #[inline]
         #[must_use]
-        pub fn #method_name() -> impl ::lambars::optics::OwnedPrism<Self, #tuple_type> + Clone {
-            ::lambars::optics::FunctionOwnedPrism::new(
+        pub fn #method_name() -> impl #lambars::optics::OwnedPrism<Self, #tuple_type> + Clone {
+            #lambars::optics::FunctionOwnedPrism::new(
                 |tuple: #tuple_type| {
                     let #tuple_construct = tuple;
                     #variant_construct
@@ -241,15 +250,18 @@ fn generate_struct_variant_prism(
         Self::#variant_name { #(#field_names),* }
     };
 
+    let variant_doc = format!("Returns an owned-only prism focusing on the `{variant_name}` variant.");
+    let lambars = crate::lambars_crate_path();
+
     quote! {
-        /// Returns an owned-only prism focusing on the `#variant_name` variant.
+        #[doc = #variant_doc]
         ///
         /// Struct variants cannot provide a lawful borrowed tuple reference,
         /// so this returns `OwnedPrism` rather than `Prism`.
         #[inline]
         #[must_use]
-        pub fn #method_name() -> impl ::lambars::optics::OwnedPrism<Self, #tuple_type> + Clone {
-            ::lambars::optics::FunctionOwnedPrism::new(
+        pub fn #method_name() -> impl #lambars::optics::OwnedPrism<Self, #tuple_type> + Clone {
+            #lambars::optics::FunctionOwnedPrism::new(
                 |tuple: #tuple_type| {
                     let (#(#tuple_vars),*) = tuple;
                     #struct_construct

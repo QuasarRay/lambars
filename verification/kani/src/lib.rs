@@ -7,8 +7,8 @@ mod boundary_families;
 #[cfg(any(test, kani))]
 mod safety_regressions;
 
-use lambars::control::Either;
-use lambars::typeclass::{Functor, Semigroup};
+use lambars_alias::control::Either;
+use lambars_alias::typeclass::{Functor, Semigroup};
 
 fn option_functor_identity(value: Option<u8>) -> bool {
     value.fmap(|x| x) == value

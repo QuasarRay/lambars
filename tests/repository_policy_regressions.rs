@@ -9,6 +9,8 @@ const DERIVE_MANIFEST: &str = include_str!("../lambars-derive/Cargo.toml");
 const SECURITY_POLICY: &str = include_str!("../SECURITY.md");
 const TOOLCHAIN: &str = include_str!("../rust-toolchain.toml");
 const ASYNC_IO: &str = include_str!("../src/effect/async_io/mod.rs");
+const DERIVED_LENSES_SOURCE: &str = include_str!("../lambars-derive/src/lenses.rs");
+const DERIVED_PRISMS_SOURCE: &str = include_str!("../lambars-derive/src/prisms.rs");
 
 #[test]
 fn sc007_security_policy_describes_the_real_unsafe_boundary() {
@@ -49,4 +51,13 @@ fn sc020_security_policy_has_a_private_reporting_route() {
 fn sc025_deprecation_version_does_not_claim_an_unreleased_version() {
     assert!(ASYNC_IO.contains("since = \"0.1.0\""));
     assert!(!ASYNC_IO.contains("deprecated since version 0.2.0"));
+}
+
+
+#[test]
+fn sc024_generated_docs_do_not_emit_literal_quote_placeholders() {
+    assert!(!DERIVED_LENSES_SOURCE.contains("`#field_name`"));
+    assert!(!DERIVED_PRISMS_SOURCE.contains("`#variant_name`"));
+    assert!(DERIVED_LENSES_SOURCE.contains("field_doc"));
+    assert!(DERIVED_PRISMS_SOURCE.contains("variant_doc"));
 }

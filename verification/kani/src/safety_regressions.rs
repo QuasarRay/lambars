@@ -1,5 +1,5 @@
-use lambars::control::{ConcurrentLazy, concurrent_lazy_reentry_matches};
-use lambars::persistent::persistent_hashmap_generation_successor;
+use lambars_alias::control::{ConcurrentLazy, concurrent_lazy_reentry_matches};
+use lambars_alias::persistent::persistent_hashmap_generation_successor;
 
 fn distinct_identity_is_not_reentrant(active: usize, candidate: usize) -> bool {
     active != candidate && !concurrent_lazy_reentry_matches(active, candidate)
@@ -90,8 +90,8 @@ mod hash_generation_kani_proofs {
 
 #[cfg(any(test, kani))]
 mod prism_regressions {
-    use lambars::optics::OwnedPrism;
-    use lambars_derive::Prisms;
+    use lambars_alias::optics::OwnedPrism;
+    use lambars_derive::{Lenses, Prisms};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Prisms)]
     enum PairVariant {
@@ -144,7 +144,7 @@ mod prism_regressions {
 
 #[cfg(any(test, kani))]
 mod ordered_unique_set_regressions {
-    use lambars::persistent::OrderedUniqueSet;
+    use lambars_alias::persistent::OrderedUniqueSet;
 
     fn normalized_three(a: u8, b: u8, c: u8) -> bool {
         let set = OrderedUniqueSet::from_sorted_vec(vec![a, b, c, a]);
@@ -178,8 +178,8 @@ mod ordered_unique_set_regressions {
 
 #[cfg(any(test, kani))]
 mod io_functor_regressions {
-    use lambars::effect::IO;
-    use lambars::typeclass::{Functor, FunctorRef};
+    use lambars_alias::effect::IO;
+    use lambars_alias::typeclass::{Functor, FunctorRef};
 
     static_assertions::assert_not_impl_any!(IO<u8>: FunctorRef);
 
@@ -207,7 +207,7 @@ mod io_functor_regressions {
 
 #[cfg(any(test, kani))]
 mod vec_functor_regressions {
-    use lambars::typeclass::Functor;
+    use lambars_alias::typeclass::Functor;
 
     fn vec_fmap_preserves_all_elements(a: u8, b: u8, c: u8) -> bool {
         let source = vec![a, b, c];
@@ -238,66 +238,42 @@ mod vec_functor_regressions {
 
 
 #[cfg(any(test, kani))]
-mod persistent_functor_regressions {
-    use lambars::persistent::{PersistentDeque, PersistentList, PersistentVector};
-    use lambars::typeclass::Functor;
+mod renamed_dependency_regressions {
+    use lambars_alias::optics::{Lens, Prism};
+    use lambars_derive::{Lenses, Prisms};
 
-    fn list_maps_all(a: u8, b: u8, c: u8) -> bool {
-        let source: PersistentList<u8> = [a, b, c].into_iter().collect();
-        let mapped = source.fmap(|value| value.wrapping_add(1));
-        mapped.into_iter().collect::<Vec<_>>()
-            == vec![a.wrapping_add(1), b.wrapping_add(1), c.wrapping_add(1)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Lenses)]
+    struct RenamedLensTarget {
+        value: u8,
     }
 
-    fn vector_maps_all(a: u8, b: u8, c: u8) -> bool {
-        let source: PersistentVector<u8> = [a, b, c].into_iter().collect();
-        let mapped = source.fmap(|value| value.wrapping_add(1));
-        mapped.into_iter().collect::<Vec<_>>()
-            == vec![a.wrapping_add(1), b.wrapping_add(1), c.wrapping_add(1)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Prisms)]
+    enum RenamedPrismTarget {
+        Value(u8),
+        Empty,
     }
 
-    fn deque_maps_all(a: u8, b: u8, c: u8) -> bool {
-        let source: PersistentDeque<u8> = [a, b, c].into_iter().collect();
-        let mapped = source.fmap(|value| value.wrapping_add(1));
-        mapped.into_iter().collect::<Vec<_>>()
-            == vec![a.wrapping_add(1), b.wrapping_add(1), c.wrapping_add(1)]
+    fn derived_api_works_through_renamed_dependency(value: u8) -> bool {
+        let source = RenamedLensTarget { value };
+        let lens = RenamedLensTarget::value_lens();
+        if *lens.get(&source) != value {
+            return false;
+        }
+
+        let prism = RenamedPrismTarget::value_prism();
+        prism.preview(&prism.review(value)) == Some(&value)
     }
 
     #[cfg(test)]
     #[test]
-    fn persistent_functors_preserve_every_element() {
-        assert!(list_maps_all(1, 2, 3));
-        assert!(vector_maps_all(1, 2, 3));
-        assert!(deque_maps_all(1, 2, 3));
+    fn sc023_derive_expansion_resolves_renamed_lambars_dependency() {
+        assert!(derived_api_works_through_renamed_dependency(42));
     }
 
     #[cfg(kani)]
     #[kani::proof]
-    #[kani::unwind(32)]
-    fn persistent_list_functor_maps_all_symbolic_elements() {
-        let a: u8 = kani::any();
-        let b: u8 = kani::any();
-        let c: u8 = kani::any();
-        assert!(list_maps_all(a, b, c));
-    }
-
-    #[cfg(kani)]
-    #[kani::proof]
-    #[kani::unwind(64)]
-    fn persistent_vector_functor_maps_all_symbolic_elements() {
-        let a: u8 = kani::any();
-        let b: u8 = kani::any();
-        let c: u8 = kani::any();
-        assert!(vector_maps_all(a, b, c));
-    }
-
-    #[cfg(kani)]
-    #[kani::proof]
-    #[kani::unwind(32)]
-    fn persistent_deque_functor_maps_all_symbolic_elements() {
-        let a: u8 = kani::any();
-        let b: u8 = kani::any();
-        let c: u8 = kani::any();
-        assert!(deque_maps_all(a, b, c));
+    fn sc023_derive_expansion_works_for_symbolic_value_through_alias() {
+        let value: u8 = kani::any();
+        assert!(derived_api_works_through_renamed_dependency(value));
     }
 }

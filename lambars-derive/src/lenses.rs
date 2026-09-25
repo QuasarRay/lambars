@@ -42,15 +42,17 @@ fn generate_struct_lenses(name: &Ident, generics: &Generics, fields: &Fields) ->
                     let field_name = field.ident.as_ref().expect("Named field must have ident");
                     let field_type = &field.ty;
                     let method_name = format_ident!("{}_lens", field_name);
+                    let field_doc = format!("Returns a lens focusing on the `{field_name}` field.");
+                    let lambars = crate::lambars_crate_path();
 
                     quote! {
-                        /// Returns a lens focusing on the `#field_name` field.
+                        #[doc = #field_doc]
                         ///
                         /// This lens provides get/set access to the field.
                         #[inline]
                         #[must_use]
-                        pub fn #method_name() -> impl ::lambars::optics::Lens<Self, #field_type> + Clone {
-                            ::lambars::optics::FunctionLens::new(
+                        pub fn #method_name() -> impl #lambars::optics::Lens<Self, #field_type> + Clone {
+                            #lambars::optics::FunctionLens::new(
                                 |source: &Self| &source.#field_name,
                                 |mut source: Self, value: #field_type| {
                                     source.#field_name = value;

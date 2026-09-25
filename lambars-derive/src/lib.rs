@@ -81,6 +81,20 @@ mod lenses;
 mod prisms;
 
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
+use proc_macro_crate::{FoundCrate, crate_name};
+use quote::{format_ident, quote};
+
+fn lambars_crate_path() -> TokenStream2 {
+    match crate_name("lambars") {
+        Ok(FoundCrate::Itself) => quote!(crate),
+        Ok(FoundCrate::Name(name)) => {
+            let ident = format_ident!("{}", name);
+            quote!(::#ident)
+        }
+        Err(_) => quote!(::lambars),
+    }
+}
 
 /// Derive macro for generating Lens implementations for struct fields.
 ///
@@ -196,7 +210,7 @@ pub fn derive_lenses(input: TokenStream) -> TokenStream {
 ///
 /// let rect = Shape::Rectangle(3.0, 4.0);
 /// let rect_prism = Shape::rectangle_prism();
-/// assert_eq!(rect_prism.preview(&rect), Some(&(3.0, 4.0)));
+/// assert_eq!(rect_prism.preview_owned(rect), Some((3.0, 4.0)));
 ///
 /// let point = Shape::Point;
 /// let point_prism = Shape::point_prism();
@@ -215,7 +229,7 @@ pub fn derive_lenses(input: TokenStream) -> TokenStream {
 ///
 /// let click = Event::Click { x: 10, y: 20 };
 /// let click_prism = Event::click_prism();
-/// assert_eq!(click_prism.preview(&click), Some(&(10, 20)));
+/// assert_eq!(click_prism.preview_owned(click), Some((10, 20)));
 /// ```
 ///
 /// # Generics
