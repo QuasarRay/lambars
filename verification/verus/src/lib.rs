@@ -60,6 +60,23 @@ pub proof fn append_preserves_length_sum<T>(left: Seq<T>, right: Seq<T>)
 {
 }
 
+/// SC-002 model of the production `concurrent_lazy_reentry_matches` predicate.
+/// The executable implementation uses identity equality exactly as modeled here.
+pub open spec fn concurrent_lazy_reentry_matches_model(active: int, candidate: int) -> bool {
+    active == candidate
+}
+
+pub proof fn sc002_distinct_instances_are_not_reentry(active: int, candidate: int)
+    requires active != candidate
+    ensures !concurrent_lazy_reentry_matches_model(active, candidate)
+{
+}
+
+pub proof fn sc002_same_instance_is_reentry(identity: int)
+    ensures concurrent_lazy_reentry_matches_model(identity, identity)
+{
+}
+
 /// These model lemmas are not counted as completed Lambars implementation
 /// proofs until a refinement lemma connects the executable Lambars operation
 /// to the model without an assumed implementation contract.
