@@ -79,12 +79,7 @@ fn loom_poison_release_is_visible_to_waiters() {
         let initializer_state = Arc::clone(&state);
         let initializer = thread::spawn(move || {
             if initializer_state
-                .compare_exchange(
-                    EMPTY,
-                    COMPUTING,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+                .compare_exchange(EMPTY, COMPUTING, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 initializer_state.store(POISONED, Ordering::Release);
@@ -92,12 +87,14 @@ fn loom_poison_release_is_visible_to_waiters() {
         });
 
         let waiter_state = Arc::clone(&state);
-        let waiter = thread::spawn(move || loop {
-            match waiter_state.load(Ordering::Acquire) {
-                EMPTY | COMPUTING => thread::yield_now(),
-                POISONED => break true,
-                READY => break false,
-                _ => unreachable!(),
+        let waiter = thread::spawn(move || {
+            loop {
+                match waiter_state.load(Ordering::Acquire) {
+                    EMPTY | COMPUTING => thread::yield_now(),
+                    POISONED => break true,
+                    READY => break false,
+                    _ => unreachable!(),
+                }
             }
         });
 
