@@ -88,16 +88,19 @@ kani_proof!(functor_option_fmap_preserves_structure_shape, {
     assert_eq!(input.fmap(bool_not).is_some(), expected_present);
 });
 
-kani_proof!(functor_option_fmap_invokes_mapping_function_exactly_once_per_present_element, {
-    let input = option_bool();
-    let expected = u8::from(input.is_some());
-    let mut calls = 0_u8;
-    let _ = input.fmap(|x| {
-        calls += 1;
-        !x
-    });
-    assert_eq!(calls, expected);
-});
+kani_proof!(
+    functor_option_fmap_invokes_mapping_function_exactly_once_per_present_element,
+    {
+        let input = option_bool();
+        let expected = u8::from(input.is_some());
+        let mut calls = 0_u8;
+        let _ = input.fmap(|x| {
+            calls += 1;
+            !x
+        });
+        assert_eq!(calls, expected);
+    }
+);
 
 kani_proof!(functor_option_fmap_handles_empty_structure, {
     let input: Option<bool> = None;
@@ -122,16 +125,19 @@ kani_proof!(functor_result_fmap_preserves_structure_shape, {
     assert_eq!(input.fmap(bool_not).is_ok(), expected_ok);
 });
 
-kani_proof!(functor_result_fmap_invokes_mapping_function_exactly_once_per_present_element, {
-    let input = result_bool();
-    let expected = u8::from(input.is_ok());
-    let mut calls = 0_u8;
-    let _ = input.fmap(|x| {
-        calls += 1;
-        !x
-    });
-    assert_eq!(calls, expected);
-});
+kani_proof!(
+    functor_result_fmap_invokes_mapping_function_exactly_once_per_present_element,
+    {
+        let input = result_bool();
+        let expected = u8::from(input.is_ok());
+        let mut calls = 0_u8;
+        let _ = input.fmap(|x| {
+            calls += 1;
+            !x
+        });
+        assert_eq!(calls, expected);
+    }
+);
 
 kani_proof!(functor_result_fmap_handles_empty_structure, {
     let input: Result<bool, bool> = Err(kani::any());
@@ -169,16 +175,18 @@ macro_rules! applicative_option_like_proofs {
     ) => {
         kani_proof!($identity_name, {
             let value: bool = kani::any();
-            let lifted_function: <$context as lambars::typeclass::TypeConstructor>::WithType<fn(bool) -> bool> =
-                <$pure_owner>::pure(bool_identity as fn(bool) -> bool);
+            let lifted_function: <$context as lambars::typeclass::TypeConstructor>::WithType<
+                fn(bool) -> bool,
+            > = <$pure_owner>::pure(bool_identity as fn(bool) -> bool);
             let lifted_value: $context = <$pure_owner>::pure(value);
             assert_eq!(lifted_function.apply(lifted_value), $pure_expected(value));
         });
 
         kani_proof!($homomorphism_name, {
             let value: bool = kani::any();
-            let lifted_function: <$context as lambars::typeclass::TypeConstructor>::WithType<fn(bool) -> bool> =
-                <$pure_owner>::pure(bool_not as fn(bool) -> bool);
+            let lifted_function: <$context as lambars::typeclass::TypeConstructor>::WithType<
+                fn(bool) -> bool,
+            > = <$pure_owner>::pure(bool_not as fn(bool) -> bool);
             let lifted_value: $context = <$pure_owner>::pure(value);
             assert_eq!(lifted_function.apply(lifted_value), $pure_expected(!value));
         });
@@ -188,7 +196,10 @@ macro_rules! applicative_option_like_proofs {
             let second: bool = kani::any();
             let left: $context = <$pure_owner>::pure(first);
             let right: $context = <$pure_owner>::pure(second);
-            assert_eq!(left.map2(right, |a, b| a ^ b), $pure_expected(first ^ second));
+            assert_eq!(
+                left.map2(right, |a, b| a ^ b),
+                $pure_expected(first ^ second)
+            );
         });
 
         kani_proof!($product_name, {
@@ -245,28 +256,40 @@ kani_proof!(applicative_identity_homomorphism_law_holds, {
     assert_eq!(function.apply(input), Identity::new(!value));
 });
 
-kani_proof!(applicative_identity_map2_matches_pure_function_application, {
-    let first: bool = kani::any();
-    let second: bool = kani::any();
-    let left = Identity::new(first);
-    let right = Identity::new(second);
-    assert_eq!(left.map2(right, |a, b| a ^ b), Identity::new(first ^ second));
-});
+kani_proof!(
+    applicative_identity_map2_matches_pure_function_application,
+    {
+        let first: bool = kani::any();
+        let second: bool = kani::any();
+        let left = Identity::new(first);
+        let right = Identity::new(second);
+        assert_eq!(
+            left.map2(right, |a, b| a ^ b),
+            Identity::new(first ^ second)
+        );
+    }
+);
 
-kani_proof!(applicative_identity_product_preserves_left_then_right_value_order, {
-    let first: bool = kani::any();
-    let second: bool = kani::any();
-    assert_eq!(
-        Identity::new(first).product(Identity::new(second)),
-        Identity::new((first, second))
-    );
-});
+kani_proof!(
+    applicative_identity_product_preserves_left_then_right_value_order,
+    {
+        let first: bool = kani::any();
+        let second: bool = kani::any();
+        assert_eq!(
+            Identity::new(first).product(Identity::new(second)),
+            Identity::new((first, second))
+        );
+    }
+);
 
-kani_proof!(applicative_identity_pure_does_not_introduce_extra_effects, {
-    let value: bool = kani::any();
-    let lifted: Identity<bool> = <Identity<()> as Applicative>::pure(value);
-    assert_eq!(lifted, Identity::new(value));
-});
+kani_proof!(
+    applicative_identity_pure_does_not_introduce_extra_effects,
+    {
+        let value: bool = kani::any();
+        let lifted: Identity<bool> = <Identity<()> as Applicative>::pure(value);
+        assert_eq!(lifted, Identity::new(value));
+    }
+);
 
 kani_proof!(monad_option_left_identity_law_holds, {
     let value: bool = kani::any();
@@ -302,16 +325,20 @@ kani_proof!(monad_option_and_then_matches_flat_map, {
     );
 });
 
-kani_proof!(monad_option_then_discards_first_value_but_preserves_first_effects, {
-    let first = option_bool();
-    let second = option_bool();
-    let expected = if first.is_some() { second } else { None };
-    assert_eq!(<Option<bool> as Monad>::then(first, second), expected);
-});
+kani_proof!(
+    monad_option_then_discards_first_value_but_preserves_first_effects,
+    {
+        let first = option_bool();
+        let second = option_bool();
+        let expected = if first.is_some() { second } else { None };
+        assert_eq!(<Option<bool> as Monad>::then(first, second), expected);
+    }
+);
 
 kani_proof!(monad_result_left_identity_law_holds, {
     let value: bool = kani::any();
-    let left: Result<bool, bool> = <Result<(), bool> as Applicative>::pure(value).flat_map(result_f);
+    let left: Result<bool, bool> =
+        <Result<(), bool> as Applicative>::pure(value).flat_map(result_f);
     assert_eq!(left, result_f(value));
 });
 
@@ -343,15 +370,18 @@ kani_proof!(monad_result_and_then_matches_flat_map, {
     );
 });
 
-kani_proof!(monad_result_then_discards_first_value_but_preserves_first_effects, {
-    let first = result_bool();
-    let second = result_bool();
-    let expected = match first {
-        Ok(_) => second,
-        Err(error) => Err(error),
-    };
-    assert_eq!(<Result<bool, bool> as Monad>::then(first, second), expected);
-});
+kani_proof!(
+    monad_result_then_discards_first_value_but_preserves_first_effects,
+    {
+        let first = result_bool();
+        let second = result_bool();
+        let expected = match first {
+            Ok(_) => second,
+            Err(error) => Err(error),
+        };
+        assert_eq!(<Result<bool, bool> as Monad>::then(first, second), expected);
+    }
+);
 
 kani_proof!(monad_box_left_identity_law_holds, {
     let value: bool = kani::any();
@@ -370,8 +400,7 @@ kani_proof!(monad_box_associativity_law_holds, {
     let left = Box::new(value)
         .flat_map(|x| Box::new(!x))
         .flat_map(|x| Box::new(!x));
-    let right = Box::new(value)
-        .flat_map(|x| Box::new(!x).flat_map(|y| Box::new(!y)));
+    let right = Box::new(value).flat_map(|x| Box::new(!x).flat_map(|y| Box::new(!y)));
     assert_eq!(*left, *right);
 });
 
@@ -390,14 +419,17 @@ kani_proof!(monad_box_and_then_matches_flat_map, {
     assert_eq!(*left, *right);
 });
 
-kani_proof!(monad_box_then_discards_first_value_but_preserves_first_effects, {
-    let first: bool = kani::any();
-    let second: bool = kani::any();
-    assert_eq!(
-        *<Box<bool> as Monad>::then(Box::new(first), Box::new(second)),
-        second
-    );
-});
+kani_proof!(
+    monad_box_then_discards_first_value_but_preserves_first_effects,
+    {
+        let first: bool = kani::any();
+        let second: bool = kani::any();
+        assert_eq!(
+            *<Box<bool> as Monad>::then(Box::new(first), Box::new(second)),
+            second
+        );
+    }
+);
 
 kani_proof!(monad_identity_left_identity_law_holds, {
     let value: bool = kani::any();
@@ -416,14 +448,15 @@ kani_proof!(monad_identity_associativity_law_holds, {
     let left = Identity::new(value)
         .flat_map(|x| Identity::new(!x))
         .flat_map(|x| Identity::new(!x));
-    let right = Identity::new(value)
-        .flat_map(|x| Identity::new(!x).flat_map(|y| Identity::new(!y)));
+    let right =
+        Identity::new(value).flat_map(|x| Identity::new(!x).flat_map(|y| Identity::new(!y)));
     assert_eq!(left, right);
 });
 
 kani_proof!(monad_identity_flatten_matches_flat_map_identity, {
     let value: bool = kani::any();
-    let flattened = <Identity<Identity<bool>> as Flatten>::flatten(Identity::new(Identity::new(value)));
+    let flattened =
+        <Identity<Identity<bool>> as Flatten>::flatten(Identity::new(Identity::new(value)));
     let flat_mapped = Identity::new(Identity::new(value)).flat_map(|inner| inner);
     assert_eq!(flattened, flat_mapped);
 });
@@ -435,11 +468,14 @@ kani_proof!(monad_identity_and_then_matches_flat_map, {
     assert_eq!(left, right);
 });
 
-kani_proof!(monad_identity_then_discards_first_value_but_preserves_first_effects, {
-    let first: bool = kani::any();
-    let second: bool = kani::any();
-    assert_eq!(
-        <Identity<bool> as Monad>::then(Identity::new(first), Identity::new(second)),
-        Identity::new(second)
-    );
-});
+kani_proof!(
+    monad_identity_then_discards_first_value_but_preserves_first_effects,
+    {
+        let first: bool = kani::any();
+        let second: bool = kani::any();
+        assert_eq!(
+            <Identity<bool> as Monad>::then(Identity::new(first), Identity::new(second)),
+            Identity::new(second)
+        );
+    }
+);

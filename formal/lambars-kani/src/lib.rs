@@ -186,9 +186,9 @@ mod compose;
 #[cfg(kani)]
 mod either;
 #[cfg(kani)]
-mod metaverification;
-#[cfg(kani)]
 mod functor_monad_fixed;
+#[cfg(kani)]
+mod metaverification;
 #[cfg(kani)]
 mod symbolic;
 #[cfg(kani)]
