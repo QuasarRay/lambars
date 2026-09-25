@@ -154,6 +154,34 @@ pub const fn concurrent_lazy_reentry_matches(active: usize, candidate: usize) ->
     active == candidate
 }
 
+/// Pure decision for the total `try_force` path.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ConcurrentLazyTryForceDecision {
+    Ready = 0,
+    Initialize = 1,
+    Wait = 2,
+    Error = 3,
+}
+
+/// Classifies `try_force` state without panicking.
+#[doc(hidden)]
+#[must_use]
+pub const fn concurrent_lazy_try_force_decision(
+    state: u8,
+    reentrant: bool,
+) -> ConcurrentLazyTryForceDecision {
+    match state {
+        STATE_READY => ConcurrentLazyTryForceDecision::Ready,
+        STATE_EMPTY => ConcurrentLazyTryForceDecision::Initialize,
+        STATE_COMPUTING if reentrant => ConcurrentLazyTryForceDecision::Error,
+        STATE_COMPUTING => ConcurrentLazyTryForceDecision::Wait,
+        STATE_POISONED => ConcurrentLazyTryForceDecision::Error,
+        _ => ConcurrentLazyTryForceDecision::Error,
+    }
+}
+
 /// RAII guard for panic safety during initialization (bracket pattern).
 ///
 /// On panic, sets `STATE_POISONED` under mutex and wakes all waiters.
@@ -951,13 +979,21 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         let mut state = self.state.load(Ordering::Acquire);
 
         loop {
-            match state {
-                STATE_READY => {
+            let identity = concurrent_lazy_identity(self);
+            let reentrant = state == STATE_COMPUTING
+                && CONCURRENT_LAZY_INIT_STACK.with(|stack| {
+                    stack
+                        .borrow()
+                        .iter()
+                        .any(|active| concurrent_lazy_reentry_matches(*active, identity))
+                });
+
+            match concurrent_lazy_try_force_decision(state, reentrant) {
+                ConcurrentLazyTryForceDecision::Ready => {
                     // SAFETY: READY guarantees initialized value.
                     return Ok(unsafe { (*self.value.get()).assume_init_ref() });
                 }
-                STATE_POISONED => return Err(ConcurrentLazyPoisonedError),
-                STATE_EMPTY => {
+                ConcurrentLazyTryForceDecision::Initialize => {
                     match self.state.compare_exchange_weak(
                         STATE_EMPTY,
                         STATE_COMPUTING,
@@ -968,22 +1004,13 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                         Err(current_state) => state = current_state,
                     }
                 }
-                STATE_COMPUTING => {
-                    let identity = concurrent_lazy_identity(self);
-                    let is_reentrant = CONCURRENT_LAZY_INIT_STACK.with(|stack| {
-                        stack
-                            .borrow()
-                            .iter()
-                            .any(|active| concurrent_lazy_reentry_matches(*active, identity))
-                    });
-                    if is_reentrant {
-                        return Err(ConcurrentLazyPoisonedError);
-                    }
-
+                ConcurrentLazyTryForceDecision::Wait => {
                     self.spin_then_wait();
                     state = self.state.load(Ordering::Acquire);
                 }
-                _ => return Err(ConcurrentLazyPoisonedError),
+                ConcurrentLazyTryForceDecision::Error => {
+                    return Err(ConcurrentLazyPoisonedError);
+                }
             }
         }
     }
@@ -1442,11 +1469,9 @@ mod tests {
     // =========================================================================
 
     #[rstest]
-    fn test_concurrent_lazy_into_inner_panic_behavior() {
+    fn test_concurrent_lazy_into_inner_initializer_panic_is_typed_error() {
         let lazy = ConcurrentLazy::new(|| -> i32 { panic!("into_inner panic test") });
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.into_inner()));
-        assert!(result.is_err());
+        assert_eq!(lazy.into_inner(), Err(ConcurrentLazyPoisonedError));
     }
 
     // =========================================================================
@@ -1754,6 +1779,14 @@ mod tests {
         // try_force waits indefinitely for initialization to complete, then returns Ok
         assert_eq!(*lazy.try_force().unwrap(), 42);
         assert_eq!(init_handle.join().unwrap(), 42);
+    }
+
+    #[rstest]
+    fn test_try_force_initializer_panic_is_typed_error() {
+        let lazy = ConcurrentLazy::new(|| -> i32 { panic!("try_force panic test") });
+        assert_eq!(lazy.try_force(), Err(ConcurrentLazyPoisonedError));
+        assert!(lazy.is_poisoned());
+        assert_eq!(lazy.try_force(), Err(ConcurrentLazyPoisonedError));
     }
 
     #[rstest]
