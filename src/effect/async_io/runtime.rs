@@ -13,18 +13,16 @@
 //!
 //! | Context | `try_run_blocking` Result |
 //! |---------|---------------------------|
-//! | Outside runtime | `Ok(T)` via `global().block_on()` |
+//! | Outside runtime | `Ok(T)` via fallible global runtime |
 //! | Multi-thread runtime | `Ok(T)` via `block_in_place` |
 //! | Current-thread runtime | `Err(CurrentThreadRuntime)` |
 //! | Unknown flavor | `Err(UnsupportedRuntimeFlavor)` |
 //!
-//! # Limitations
+//! # Failure handling
 //!
-//! `block_in_place` panics in multi-thread runtime when called from:
-//! - `LocalSet::run_until()`
-//! - Contexts with `disallow_block_in_place` enabled
-//!
-//! **Workaround**: Use `spawn_blocking` to move to a worker thread first.
+//! Runtime construction failure, unsupported blocking contexts, and unwinding
+//! during blocking execution are returned as `BlockingError`; these helpers
+//! do not hide a runtime `expect()` or panic-on-error convenience path.
 //!
 //! # Security
 //!
@@ -37,7 +35,7 @@
 //! use lambars::effect::async_io::runtime::{run_blocking, try_run_blocking};
 //!
 //! let result = run_blocking(async { 42 });
-//! assert_eq!(result, 42);
+//! assert_eq!(result, Ok(42));
 //!
 //! let result = try_run_blocking(async { 42 });
 //! assert_eq!(result, Ok(42));
@@ -47,6 +45,8 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
+use std::io::ErrorKind;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -63,23 +63,49 @@ static RUNTIME_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_RUNTIME_ID: LazyLock<u64> =
     LazyLock::new(|| RUNTIME_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1);
 
-/// Global multi-thread tokio runtime (static lifetime, never dropped).
-static GLOBAL_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    // Ensure runtime ID is initialized before the runtime itself
+/// Error returned if the process-global Tokio runtime cannot be constructed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeInitializationError {
+    kind: ErrorKind,
+}
+
+impl RuntimeInitializationError {
+    #[must_use]
+    pub const fn kind(self) -> ErrorKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for RuntimeInitializationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "failed to initialize global Tokio runtime: {:?}", self.kind)
+    }
+}
+
+impl Error for RuntimeInitializationError {}
+
+/// Global multi-thread Tokio runtime result (static lifetime, never dropped).
+///
+/// Initialization failure is cached exactly like success so callers never race
+/// to build multiple fallback runtimes and no hidden panic path exists.
+static GLOBAL_RUNTIME: LazyLock<Result<Runtime, RuntimeInitializationError>> = LazyLock::new(|| {
+    // Ensure runtime ID is initialized before the runtime itself.
     let _ = *GLOBAL_RUNTIME_ID;
 
     Builder::new_multi_thread()
         .worker_threads(num_cpus::get())
         .enable_all()
         .build()
-        .expect("Failed to create global tokio runtime")
+        .map_err(|error| RuntimeInitializationError { kind: error.kind() })
 });
 
 /// Returns a reference to the lazily-initialized global runtime.
 #[inline]
-#[must_use]
-pub fn global() -> &'static Runtime {
-    &GLOBAL_RUNTIME
+pub fn global() -> Result<&'static Runtime, RuntimeInitializationError> {
+    match &*GLOBAL_RUNTIME {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(*error),
+    }
 }
 
 /// Returns an opaque, ASLR-safe identifier for the global runtime.
@@ -103,21 +129,20 @@ thread_local! {
 /// Priority: current runtime handle > cached global runtime handle.
 /// The global handle is cloned once per thread and cached thereafter.
 #[inline]
-#[must_use]
-pub fn handle() -> Handle {
+pub fn handle() -> Result<Handle, RuntimeInitializationError> {
     if let Ok(current_handle) = Handle::try_current() {
-        return current_handle;
+        return Ok(current_handle);
     }
 
     CACHED_HANDLE.with(|cell| {
         let mut cached = cell.borrow_mut();
         if let Some(ref cached_handle) = *cached {
-            return cached_handle.clone();
+            return Ok(cached_handle.clone());
         }
 
-        let global_handle = global().handle().clone();
+        let global_handle = global()?.handle().clone();
         *cached = Some(global_handle.clone());
-        global_handle
+        Ok(global_handle)
     })
 }
 
@@ -147,6 +172,12 @@ pub enum BlockingError {
     /// This variant exists for forward compatibility with future tokio versions
     /// that may introduce new runtime flavors.
     UnsupportedRuntimeFlavor,
+
+    /// The process-global runtime could not be constructed.
+    RuntimeInitializationFailed(ErrorKind),
+
+    /// Tokio rejected blocking execution or the future unwound.
+    ExecutionPanicked,
 }
 
 impl fmt::Display for BlockingError {
@@ -165,6 +196,12 @@ impl fmt::Display for BlockingError {
                     "cannot execute blocking operation: \
                      the runtime flavor is not supported for blocking execution"
                 )
+            }
+            Self::RuntimeInitializationFailed(kind) => {
+                write!(formatter, "global Tokio runtime initialization failed: {kind:?}")
+            }
+            Self::ExecutionPanicked => {
+                write!(formatter, "blocking execution unwound")
             }
         }
     }
@@ -201,42 +238,75 @@ impl Error for BlockingError {}
 /// let result = try_run_blocking(async { 42 });
 /// assert_eq!(result, Ok(42));
 /// ```
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum BlockingExecutionDecision {
+    GlobalRuntime = 0,
+    MultiThreadRuntime = 1,
+    CurrentThreadError = 2,
+    UnsupportedRuntimeError = 3,
+}
+
+/// Pure context classifier shared with Kani/Verus regressions.
+#[doc(hidden)]
+#[must_use]
+pub const fn blocking_execution_decision(context: u8) -> BlockingExecutionDecision {
+    match context {
+        0 => BlockingExecutionDecision::GlobalRuntime,
+        1 => BlockingExecutionDecision::MultiThreadRuntime,
+        2 => BlockingExecutionDecision::CurrentThreadError,
+        _ => BlockingExecutionDecision::UnsupportedRuntimeError,
+    }
+}
+
 #[inline]
 pub fn try_run_blocking<F, T>(future: F) -> Result<T, BlockingError>
 where
     F: Future<Output = T>,
 {
-    if let Ok(current_handle) = Handle::try_current() {
-        match current_handle.runtime_flavor() {
-            RuntimeFlavor::MultiThread => {
-                // Preserve caller's runtime context (tracing, metrics, etc.)
-                // Panics in LocalSet::run_until() or disallow_block_in_place contexts
-                Ok(tokio::task::block_in_place(|| {
-                    current_handle.block_on(future)
-                }))
-            }
-            RuntimeFlavor::CurrentThread => Err(BlockingError::CurrentThreadRuntime),
-            _ => Err(BlockingError::UnsupportedRuntimeFlavor),
-        }
+    let (decision, current_handle) = if let Ok(handle) = Handle::try_current() {
+        let decision = match handle.runtime_flavor() {
+            RuntimeFlavor::MultiThread => blocking_execution_decision(1),
+            RuntimeFlavor::CurrentThread => blocking_execution_decision(2),
+            _ => blocking_execution_decision(3),
+        };
+        (decision, Some(handle))
     } else {
-        Ok(global().block_on(future))
+        (blocking_execution_decision(0), None)
+    };
+
+    match decision {
+        BlockingExecutionDecision::GlobalRuntime => {
+            let runtime = global()
+                .map_err(|error| BlockingError::RuntimeInitializationFailed(error.kind()))?;
+            catch_unwind(AssertUnwindSafe(|| runtime.block_on(future)))
+                .map_err(|_| BlockingError::ExecutionPanicked)
+        }
+        BlockingExecutionDecision::MultiThreadRuntime => {
+            let handle = current_handle.ok_or(BlockingError::UnsupportedRuntimeFlavor)?;
+            catch_unwind(AssertUnwindSafe(|| {
+                tokio::task::block_in_place(|| handle.block_on(future))
+            }))
+            .map_err(|_| BlockingError::ExecutionPanicked)
+        }
+        BlockingExecutionDecision::CurrentThreadError => Err(BlockingError::CurrentThreadRuntime),
+        BlockingExecutionDecision::UnsupportedRuntimeError => {
+            Err(BlockingError::UnsupportedRuntimeFlavor)
+        }
     }
 }
 
-/// Convenience wrapper around [`try_run_blocking`] that panics on error.
+/// Non-panicking alias for [`try_run_blocking`].
 ///
-/// # Panics
-///
-/// - In current-thread runtime (`BlockingError::CurrentThreadRuntime`)
-/// - In unsupported runtime flavor (`BlockingError::UnsupportedRuntimeFlavor`)
-/// - In `LocalSet::run_until()` or `disallow_block_in_place` contexts
-/// - If the future panics
+/// Kept for API discoverability; all runtime and future failures are represented
+/// in the returned `BlockingError`.
 #[inline]
-pub fn run_blocking<F, T>(future: F) -> T
+pub fn run_blocking<F, T>(future: F) -> Result<T, BlockingError>
 where
     F: Future<Output = T>,
 {
-    try_run_blocking(future).expect("run_blocking failed")
+    try_run_blocking(future)
 }
 
 // =============================================================================
