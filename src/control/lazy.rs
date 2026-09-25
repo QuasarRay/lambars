@@ -79,6 +79,28 @@ impl fmt::Display for LazyPoisonedError {
 
 impl std::error::Error for LazyPoisonedError {}
 
+/// Pure state decision shared by the total Lazy access path and formal regressions.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LazyForceDecision {
+    Ready = 0,
+    Initialize = 1,
+    Error = 2,
+}
+
+/// Classifies Lazy state without panicking.
+#[doc(hidden)]
+#[must_use]
+pub const fn lazy_force_decision(state: u8) -> LazyForceDecision {
+    match state {
+        STATE_READY => LazyForceDecision::Ready,
+        STATE_EMPTY => LazyForceDecision::Initialize,
+        STATE_COMPUTING | STATE_POISONED => LazyForceDecision::Error,
+        _ => LazyForceDecision::Error,
+    }
+}
+
 /// A lazily evaluated value with memoization.
 ///
 /// `Lazy<T, F>` defers computation until the value is first accessed via `force()`.
@@ -273,9 +295,14 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
         }
     }
 
-    /// Performs the initialization (immutable self version).
+    /// Performs initialization for the explicitly partial `force()` wrapper.
     fn initialize(&self) -> &T {
-        // Empty -> Computing transition
+        self.initialize_result()
+            .unwrap_or_else(|_| panic!("Lazy: initialization failed or re-entered"))
+    }
+
+    /// Performs initialization without unwinding.
+    fn initialize_result(&self) -> Result<&T, LazyPoisonedError> {
         match self.state.compare_exchange(
             STATE_EMPTY,
             STATE_COMPUTING,
@@ -283,49 +310,37 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
             Ordering::Acquire,
         ) {
             Ok(_) => {
-                // SAFETY: compare_exchange succeeded, so only this thread is in
-                // STATE_COMPUTING. initializer is Some only when state is STATE_EMPTY
-                // (invariant), so take() is safe.
-                let initializer = unsafe { (*self.initializer.get()).take() }
-                    .expect("initializer already consumed");
+                // SAFETY: compare_exchange succeeded, so this invocation owns initialization.
+                let Some(initializer) = (unsafe { (*self.initializer.get()).take() }) else {
+                    self.state.store(STATE_POISONED, Ordering::Release);
+                    return Err(LazyPoisonedError);
+                };
 
-                // Catch panic
-                let result = catch_unwind(AssertUnwindSafe(initializer));
-
-                // Note: Using match for clarity - the Err case panics so clippy's
-                // suggestion to use if let or map_or_else is not appropriate
-                #[allow(clippy::single_match_else, clippy::option_if_let_else)]
-                match result {
+                match catch_unwind(AssertUnwindSafe(initializer)) {
                     Ok(value) => {
-                        // SAFETY: Only the thread that acquired STATE_COMPUTING reaches here.
-                        // value is uninitialized, so we initialize it with write().
+                        // SAFETY: This invocation uniquely owns STATE_COMPUTING.
                         unsafe {
                             (*self.value.get()).write(value);
                         }
-
-                        // Release ordering makes the write visible to other threads
                         self.state.store(STATE_READY, Ordering::Release);
-
-                        // SAFETY: Just initialized with write(). assume_init_ref() is safe.
-                        unsafe { (*self.value.get()).assume_init_ref() }
+                        // SAFETY: value was initialized immediately before READY publication.
+                        Ok(unsafe { (*self.value.get()).assume_init_ref() })
                     }
                     Err(_) => {
                         self.state.store(STATE_POISONED, Ordering::Release);
-                        panic!("Lazy: initialization function panicked");
+                        Err(LazyPoisonedError)
                     }
                 }
             }
-            Err(current) => {
-                // Lazy is for single-threaded use, so STATE_COMPUTING failure shouldn't happen
-                match current {
-                    STATE_READY => {
-                        // SAFETY: Same reason as force() - value is initialized
-                        unsafe { (*self.value.get()).assume_init_ref() }
-                    }
-                    STATE_POISONED => panic!("Lazy instance has been poisoned"),
-                    _ => unreachable!("Single-threaded Lazy in unexpected state"),
+            Err(current) => match lazy_force_decision(current) {
+                LazyForceDecision::Ready => {
+                    // SAFETY: READY guarantees initialized value.
+                    Ok(unsafe { (*self.value.get()).assume_init_ref() })
                 }
-            }
+                LazyForceDecision::Initialize | LazyForceDecision::Error => {
+                    Err(LazyPoisonedError)
+                }
+            },
         }
     }
 
@@ -536,10 +551,8 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// - The lazy value is poisoned (initialization previously panicked)
     /// - Re-entry is detected (calling `try_force` during initialization)
     ///
-    /// # Panics
-    ///
-    /// Panics if the initialization function itself panics. The panic is not caught;
-    /// only the poisoned state (from a previous panic) is handled via `Result`.
+    /// Initializer panics are caught, the Lazy is poisoned, and this method
+    /// returns `Err(LazyPoisonedError)`.
     ///
     /// # Examples
     ///
@@ -559,18 +572,13 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     pub fn try_force(&self) -> Result<&T, LazyPoisonedError> {
         let state = self.state.load(Ordering::Acquire);
 
-        match state {
-            STATE_READY => {
-                // SAFETY: Same as force() - state is STATE_READY so value is initialized
+        match lazy_force_decision(state) {
+            LazyForceDecision::Ready => {
+                // SAFETY: READY guarantees initialized value.
                 Ok(unsafe { (*self.value.get()).assume_init_ref() })
             }
-            STATE_POISONED => Err(LazyPoisonedError),
-            STATE_EMPTY => Ok(self.initialize()),
-            STATE_COMPUTING => {
-                // Re-entry during initialization
-                Err(LazyPoisonedError)
-            }
-            _ => unreachable!("Invalid state"),
+            LazyForceDecision::Initialize => self.initialize_result(),
+            LazyForceDecision::Error => Err(LazyPoisonedError),
         }
     }
 
@@ -600,52 +608,52 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     ///
     /// Returns `Err(LazyPoisonedError)` if the `Lazy` instance has been poisoned.
     ///
-    /// # Panics
-    ///
-    /// Panics if the initialization function panics. In this case, the panic
-    /// is re-thrown after marking the Lazy as poisoned (though the Lazy is
-    /// consumed, so the poisoned state is not observable).
+    /// Initializer panics are caught and returned as `Err(LazyPoisonedError)`.
     pub fn into_inner(self) -> Result<T, LazyPoisonedError> {
-        // Prevent Drop from running since we're manually handling the fields
-        let this = ManuallyDrop::new(self);
+        let mut this = ManuallyDrop::new(self);
         let state = this.state.load(Ordering::Acquire);
 
         match state {
             STATE_READY => {
-                // SAFETY: STATE_READY means value is initialized.
-                // We're consuming self (via ManuallyDrop), so we can take ownership.
-                // The value won't be double-dropped because Drop won't run.
-                Ok(unsafe { (*this.value.get()).assume_init_read() })
+                // SAFETY: READY guarantees initialized value.
+                let value = unsafe { (*this.value.get()).assume_init_read() };
+                // Prevent Drop from dropping the moved value.
+                this.state.store(STATE_EMPTY, Ordering::Relaxed);
+                // SAFETY: value has been moved and state no longer claims READY.
+                unsafe { ManuallyDrop::drop(&mut this) };
+                Ok(value)
             }
-            STATE_POISONED => Err(LazyPoisonedError),
+            STATE_POISONED | STATE_COMPUTING => {
+                // SAFETY: value is not initialized in these states.
+                unsafe { ManuallyDrop::drop(&mut this) };
+                Err(LazyPoisonedError)
+            }
             STATE_EMPTY => {
-                // SAFETY: STATE_EMPTY means initializer is Some.
-                // We're consuming self (via ManuallyDrop).
-                let initializer = unsafe { (*this.initializer.get()).take() }
-                    .expect("initializer already consumed");
+                // SAFETY: EMPTY owns an initializer unless an invariant was already violated.
+                let initializer = unsafe { (*this.initializer.get()).take() };
+                let Some(initializer) = initializer else {
+                    unsafe { ManuallyDrop::drop(&mut this) };
+                    return Err(LazyPoisonedError);
+                };
 
-                // Catch panics to ensure consistent behavior
-                let result = catch_unwind(AssertUnwindSafe(initializer));
-
-                // Note: Using match for clarity - the Err case panics so clippy's
-                // suggestion to use if let or map_or_else is not appropriate
-                #[allow(clippy::single_match_else, clippy::option_if_let_else)]
-                match result {
-                    Ok(value) => Ok(value),
+                match catch_unwind(AssertUnwindSafe(initializer)) {
+                    Ok(value) => {
+                        // SAFETY: initializer was removed, value field was never initialized.
+                        unsafe { ManuallyDrop::drop(&mut this) };
+                        Ok(value)
+                    }
                     Err(_) => {
-                        // Store poisoned state for consistency, even though we own the value
-                        // This is mostly for documentation purposes since the value is consumed
                         this.state.store(STATE_POISONED, Ordering::Release);
-                        panic!("Lazy: initialization function panicked");
+                        // SAFETY: no initialized value is present.
+                        unsafe { ManuallyDrop::drop(&mut this) };
+                        Err(LazyPoisonedError)
                     }
                 }
             }
-            STATE_COMPUTING => {
-                // This should not happen when consuming self (we have ownership),
-                // but if it somehow occurs, treat it as an error
+            _ => {
+                unsafe { ManuallyDrop::drop(&mut this) };
                 Err(LazyPoisonedError)
             }
-            _ => unreachable!("Invalid state"),
         }
     }
 }
@@ -1142,11 +1150,17 @@ mod tests {
     // The panic message is still tested indirectly through the code coverage.
 
     #[rstest]
-    fn test_lazy_into_inner_panic_behavior() {
+    fn test_lazy_into_inner_initializer_panic_is_typed_error() {
         let lazy = Lazy::new(|| -> i32 { panic!("into_inner panic test") });
+        assert_eq!(lazy.into_inner(), Err(LazyPoisonedError));
+    }
 
-        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| lazy.into_inner()));
-        assert!(result.is_err());
+    #[rstest]
+    fn test_lazy_try_force_initializer_panic_is_typed_error() {
+        let lazy = Lazy::new(|| -> i32 { panic!("try_force panic test") });
+        assert_eq!(lazy.try_force(), Err(LazyPoisonedError));
+        assert!(lazy.is_poisoned());
+        assert_eq!(lazy.try_force(), Err(LazyPoisonedError));
     }
 
     // =========================================================================

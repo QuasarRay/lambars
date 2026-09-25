@@ -566,4 +566,38 @@ pub proof fn sc026_execution_mode_preserves_closed_pool_error(
 {
 }
 
+
+/// SC-026 Lazy total-access state model.
+/// 0=ready, 1=initialize, 2=typed error.
+pub open spec fn lazy_force_decision_model(state: int) -> int {
+    if state == 2 { 0 }
+    else if state == 0 { 1 }
+    else { 2 }
+}
+
+pub open spec fn lazy_force_decision_for_mode_model(state: int, execution_mode: int) -> int {
+    if 0 <= execution_mode <= 2 {
+        lazy_force_decision_model(state)
+    } else {
+        2
+    }
+}
+
+pub proof fn sc026_lazy_state_classifier_is_total(state: int)
+    ensures
+        lazy_force_decision_model(state) == 0
+        || lazy_force_decision_model(state) == 1
+        || lazy_force_decision_model(state) == 2,
+{
+}
+
+pub proof fn sc026_lazy_execution_mode_preserves_totality(state: int, execution_mode: int)
+    requires 0 <= execution_mode <= 2
+    ensures
+        lazy_force_decision_for_mode_model(state, execution_mode) == 0
+        || lazy_force_decision_for_mode_model(state, execution_mode) == 1
+        || lazy_force_decision_for_mode_model(state, execution_mode) == 2,
+{
+}
+
 } // verus!

@@ -22,7 +22,8 @@ An internal `panic!`, `expect`, `unwrap`, or `unreachable!` is acceptable only w
 | `AsyncPool::new`, `with_queue_capacity` | partial convenience | use `try_new` / `try_with_queue_capacity`; conversion of convenience constructors remains SC-026 work |
 | `ConcurrentLazy::wait_for` | bounded/fallible | `ConcurrentLazyWaitError` |
 | `ConcurrentLazy::force`, `try_force` | partial | poisoning/re-entry/initializer panic still requires further SC-026 remediation |
-| `Lazy::force`, `force_mut`, `try_force` | partial | initializer panic/re-entry still requires further SC-026 remediation |
+| `Lazy::try_force`, `into_inner` | fallible | initializer panic is caught and returned as `LazyPoisonedError`; `Lazy` is `!Sync` |
+| `Lazy::force`, `force_mut` | partial convenience | explicitly documented panic paths remain SC-026 work |
 | `Freer::interpret` / type-erased continuations | partial | `try_interpret` exists, but continuation downcast paths still require typed propagation |
 | `PureHandler` impossible-effect branches | internal invariant | must remain unreachable from safe typed construction and requires formal invariant evidence |
 
