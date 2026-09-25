@@ -13,7 +13,7 @@
 //! enum layout doesn't allow returning a reference to a tuple that doesn't
 //! exist in memory. Use `preview_owned` and `review` for these variants.
 
-use lambars::optics::{Lens, Prism};
+use lambars::optics::{Lens, OwnedPrism, Prism};
 use lambars_derive::{Lenses, Prisms};
 use rstest::rstest;
 
@@ -335,6 +335,18 @@ fn test_derived_prism_rectangle_review() {
     );
 }
 
+/// SC-003 regression: owned preview after review must return the original tuple.
+#[test]
+fn test_derived_owned_prism_rectangle_preview_review_law() {
+    let rectangle_prism = MultiFieldShape::rectangle_prism();
+    let value = (3.0, 4.0);
+
+    assert_eq!(
+        rectangle_prism.preview_owned(rectangle_prism.review(value)),
+        Some(value)
+    );
+}
+
 /// Test derived prism for Triangle variant with preview_owned
 #[test]
 fn test_derived_prism_triangle_preview_owned() {
@@ -376,6 +388,18 @@ fn test_derived_prism_struct_variant_click_review() {
 
     let constructed = click_prism.review((30, 40));
     assert!(matches!(constructed, Event::Click { x: 30, y: 40 }));
+}
+
+/// SC-003 regression: owned struct-variant prism must round-trip review/preview_owned.
+#[test]
+fn test_derived_owned_prism_struct_preview_review_law() {
+    let click_prism = Event::click_prism();
+    let value = (30, 40);
+
+    assert_eq!(
+        click_prism.preview_owned(click_prism.review(value)),
+        Some(value)
+    );
 }
 
 /// Test derived prism for struct variant Scroll with preview_owned

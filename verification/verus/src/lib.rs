@@ -11,9 +11,7 @@ pub proof fn identity_is_identity(value: int)
 
 pub type EitherModel = (bool, int);
 
-pub open spec fn swap(value: EitherModel) -> EitherModel {
-    (!value.0, value.1)
-}
+pub open spec fn swap(value: EitherModel) -> EitherModel { (!value.0, value.1) }
 
 pub proof fn either_swap_twice_returns_original_variant_and_value(value: EitherModel)
     ensures swap(swap(value)) == value
@@ -31,8 +29,7 @@ pub proof fn update_at_preserves_other_indices(s: Seq<int>, i: int, j: int, v: i
         0 <= i < s.len(),
         0 <= j < s.len(),
         i != j,
-    ensures
-        update_at(s, i, v)[j] == s[j],
+    ensures update_at(s, i, v)[j] == s[j]
 {
 }
 
@@ -56,16 +53,23 @@ pub proof fn sc002_same_instance_is_reentry(identity: int)
 {
 }
 
-/// SC-030 model of checked generation-token advancement.
-pub open spec fn generation_successor_model(current: int) -> int {
-    current + 1
-}
+pub open spec fn generation_successor_model(current: int) -> int { current + 1 }
 
 pub proof fn sc030_generation_successor_cannot_be_shared_zero(current: int)
     requires current >= 1
     ensures
         generation_successor_model(current) > current,
         generation_successor_model(current) != 0,
+{
+}
+
+/// SC-003 owned-prism model: construction followed by owned extraction returns the payload.
+pub open spec fn owned_pair_review(left: int, right: int) -> (int, int) { (left, right) }
+
+pub open spec fn owned_pair_preview(value: (int, int)) -> (int, int) { value }
+
+pub proof fn sc003_owned_prism_preview_review_law(left: int, right: int)
+    ensures owned_pair_preview(owned_pair_review(left, right)) == (left, right)
 {
 }
 

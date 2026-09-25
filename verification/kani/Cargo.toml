@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 lambars = { path = "../..", features = ["serde", "arc"] }
 lambars-verification = { path = "../../lambars-verification" }
+lambars-derive = { path = "../../lambars-derive" }
 
 [lints.rust]
 unsafe_code = "deny"

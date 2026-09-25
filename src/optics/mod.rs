@@ -224,7 +224,9 @@ pub use lens::LensAsTraversal;
 
 // Re-export all prism-related types and traits
 pub use prism::ComposedPrism;
+pub use prism::FunctionOwnedPrism;
 pub use prism::FunctionPrism;
+pub use prism::OwnedPrism;
 pub use prism::Prism;
 pub use prism::PrismAsTraversal;
 

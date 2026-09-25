@@ -86,3 +86,57 @@ mod hash_generation_kani_proofs {
         assert!(generation_successor_is_nonzero_and_monotonic(current));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod prism_regressions {
+    use lambars::optics::OwnedPrism;
+    use lambars_derive::Prisms;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Prisms)]
+    enum PairVariant {
+        Pair(u8, u8),
+        Other,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Prisms)]
+    enum StructVariant {
+        Pair { left: u8, right: u8 },
+        Other,
+    }
+
+    fn tuple_owned_prism_roundtrip(left: u8, right: u8) -> bool {
+        let prism = PairVariant::pair_prism();
+        let value = (left, right);
+        prism.preview_owned(prism.review(value)) == Some(value)
+    }
+
+    fn struct_owned_prism_roundtrip(left: u8, right: u8) -> bool {
+        let prism = StructVariant::pair_prism();
+        let value = (left, right);
+        prism.preview_owned(prism.review(value)) == Some(value)
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc003_derived_owned_prisms_satisfy_roundtrip_law() {
+        assert!(tuple_owned_prism_roundtrip(1, 2));
+        assert!(struct_owned_prism_roundtrip(3, 4));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc003_tuple_variant_derive_satisfies_owned_preview_review() {
+        let left: u8 = kani::any();
+        let right: u8 = kani::any();
+        assert!(tuple_owned_prism_roundtrip(left, right));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc003_struct_variant_derive_satisfies_owned_preview_review() {
+        let left: u8 = kani::any();
+        let right: u8 = kani::any();
+        assert!(struct_owned_prism_roundtrip(left, right));
+    }
+}
