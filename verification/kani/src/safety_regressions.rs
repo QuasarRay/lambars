@@ -277,3 +277,46 @@ mod renamed_dependency_regressions {
         assert!(derived_api_works_through_renamed_dependency(value));
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod concurrent_lazy_protocol_regressions {
+    const EMPTY: u8 = 0;
+    const COMPUTING: u8 = 1;
+    const READY: u8 = 2;
+    const POISONED: u8 = 3;
+
+    fn allowed_transition(from: u8, to: u8) -> bool {
+        matches!(
+            (from, to),
+            (EMPTY, COMPUTING) | (COMPUTING, READY) | (COMPUTING, POISONED)
+        )
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc006_sc034_protocol_has_only_expected_state_transitions() {
+        assert!(allowed_transition(EMPTY, COMPUTING));
+        assert!(allowed_transition(COMPUTING, READY));
+        assert!(allowed_transition(COMPUTING, POISONED));
+        assert!(!allowed_transition(READY, COMPUTING));
+        assert!(!allowed_transition(POISONED, COMPUTING));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc006_ready_and_poisoned_are_terminal_for_initialization_protocol() {
+        let to: u8 = kani::any();
+        assert!(!allowed_transition(READY, to));
+        assert!(!allowed_transition(POISONED, to));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc034_only_computing_can_publish_ready_or_poisoned() {
+        let from: u8 = kani::any();
+        if allowed_transition(from, READY) || allowed_transition(from, POISONED) {
+            assert_eq!(from, COMPUTING);
+        }
+    }
+}

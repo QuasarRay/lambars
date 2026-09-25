@@ -78,4 +78,27 @@ pub open spec fn vec_functor_mapped_len(source: Seq<int>) -> nat { source.len() 
 pub proof fn vec_functor_map_preserves_length(source: Seq<int>)
     ensures vec_functor_mapped_len(source) == source.len() {}
 
+/// SC-006/SC-034 state-transition model paired with the Loom interleaving suite.
+pub open spec fn concurrent_lazy_transition_allowed(from: int, to: int) -> bool {
+    (from == 0 && to == 1)
+    || (from == 1 && to == 2)
+    || (from == 1 && to == 3)
+}
+
+pub proof fn sc006_ready_and_poisoned_are_terminal(to: int)
+    ensures
+        !concurrent_lazy_transition_allowed(2, to),
+        !concurrent_lazy_transition_allowed(3, to),
+{
+}
+
+pub proof fn sc034_only_computing_can_publish_terminal_state(from: int, to: int)
+    requires
+        concurrent_lazy_transition_allowed(from, to),
+        to == 2 || to == 3,
+    ensures
+        from == 1,
+{
+}
+
 } // verus!

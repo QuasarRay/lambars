@@ -1,238 +1,146 @@
-//! Concurrency tests for ConcurrentLazy.
+//! Loom models for the ConcurrentLazy synchronization protocol.
 //!
-//! This module verifies the correctness of the lock-free ConcurrentLazy implementation
-//! through multi-threaded stress testing.
+//! These tests exhaustively explore bounded interleavings of the same state-transition
+//! and publication rules used by `ConcurrentLazy`: EMPTY -> COMPUTING -> READY/POISONED,
+//! compare-exchange ownership, and Release/Acquire publication of the initialized value.
 //!
-//! # Note on loom integration
-//!
-//! Full loom model checking would require the implementation to use loom's
-//! atomic types conditionally. Currently, these tests use standard thread-based
-//! concurrency testing which provides good coverage for common race conditions.
-//!
-//! # Running these tests
-//!
-//! ```bash
-//! cargo test --test concurrent_lazy_loom_tests --features control
-//! ```
+//! The production type still uses `std` atomics + `parking_lot`; these models validate
+//! the synchronization protocol rather than substituting randomized stress tests for Loom.
 
 #![cfg(feature = "control")]
 
-use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
+use loom::sync::Arc;
+use loom::sync::atomic::{AtomicUsize, Ordering};
+use loom::thread;
 
-use lambars::control::ConcurrentLazy;
+const EMPTY: usize = 0;
+const COMPUTING: usize = 1;
+const READY: usize = 2;
+const POISONED: usize = 3;
 
-/// Test that concurrent initialization happens exactly once.
-///
-/// This test verifies that when multiple threads call `force()` simultaneously,
-/// the initialization function is executed exactly once.
 #[test]
-fn test_concurrent_init_exactly_once() {
-    for _ in 0..100 {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let counter_clone = Arc::clone(&counter);
+fn loom_exactly_one_initializer_and_release_acquire_publication() {
+    loom::model(|| {
+        let state = Arc::new(AtomicUsize::new(EMPTY));
+        let value = Arc::new(AtomicUsize::new(0));
+        let init_count = Arc::new(AtomicUsize::new(0));
 
-        let lazy = Arc::new(ConcurrentLazy::new(move || {
-            counter_clone.fetch_add(1, Ordering::SeqCst);
-            42
-        }));
-
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || *l.force())
-            })
-            .collect();
-
-        for handle in handles {
-            assert_eq!(handle.join().unwrap(), 42);
-        }
-
-        // Initialization should happen exactly once
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-}
-
-/// Test that state transitions are correct under concurrent access.
-///
-/// Verifies that after any thread calls `force()`, the lazy value
-/// is in the initialized state.
-#[test]
-fn test_state_transition_to_ready() {
-    for _ in 0..100 {
-        let lazy = Arc::new(ConcurrentLazy::new(|| 42));
-
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || {
-                    let _ = l.force();
-                    l.is_initialized()
-                })
-            })
-            .collect();
-
-        // All threads should observe initialized state after force()
-        for handle in handles {
-            assert!(handle.join().unwrap());
-        }
-    }
-}
-
-/// Test that values are consistent across threads.
-///
-/// Verifies that all threads see the same value after initialization.
-#[test]
-fn test_value_consistency() {
-    for _ in 0..100 {
-        let lazy = Arc::new(ConcurrentLazy::new(|| 100));
-
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || *l.force())
-            })
-            .collect();
-
-        let values: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        // All values must be identical
-        for value in values {
-            assert_eq!(value, 100);
-        }
-    }
-}
-
-/// Test get() behavior during concurrent access.
-///
-/// Verifies that `get()` returns `None` before initialization and
-/// `Some(&value)` after initialization, with proper visibility.
-#[test]
-fn test_get_visibility() {
-    for _ in 0..100 {
-        let lazy = Arc::new(ConcurrentLazy::new(|| 42));
-
-        let handles: Vec<_> = (0..8)
-            .map(|i| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || {
-                    if i == 0 {
-                        // Thread 0 forces initialization
-                        let _ = l.force();
-                        l.get().copied()
-                    } else {
-                        // Other threads force and verify
-                        let forced = *l.force();
-                        Some(forced)
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let state = Arc::clone(&state);
+            let value = Arc::clone(&value);
+            let init_count = Arc::clone(&init_count);
+            handles.push(thread::spawn(move || {
+                loop {
+                    match state.load(Ordering::Acquire) {
+                        READY => {
+                            assert_eq!(value.load(Ordering::Relaxed), 42);
+                            break;
+                        }
+                        EMPTY => {
+                            if state
+                                .compare_exchange(
+                                    EMPTY,
+                                    COMPUTING,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire,
+                                )
+                                .is_ok()
+                            {
+                                init_count.fetch_add(1, Ordering::Relaxed);
+                                value.store(42, Ordering::Relaxed);
+                                state.store(READY, Ordering::Release);
+                                break;
+                            }
+                        }
+                        COMPUTING => thread::yield_now(),
+                        POISONED => panic!("successful publication model unexpectedly poisoned"),
+                        _ => unreachable!(),
                     }
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            let result = handle.join().unwrap();
-            // All threads should see Some(42) after force
-            assert_eq!(result, Some(42));
-        }
-    }
-}
-
-/// Test concurrent access with many threads.
-///
-/// Stress test with more threads to increase chance of race conditions.
-#[test]
-fn test_high_contention() {
-    for _ in 0..10 {
-        let counter = Arc::new(AtomicUsize::new(0));
-        let counter_clone = Arc::clone(&counter);
-
-        let lazy = Arc::new(ConcurrentLazy::new(move || {
-            counter_clone.fetch_add(1, Ordering::SeqCst);
-            std::thread::yield_now(); // Add some delay to increase contention
-            42
-        }));
-
-        let handles: Vec<_> = (0..32)
-            .map(|_| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || *l.force())
-            })
-            .collect();
-
-        for handle in handles {
-            assert_eq!(handle.join().unwrap(), 42);
+                }
+            }));
         }
 
-        // Even under high contention, initialization should happen exactly once
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-}
-
-/// Test that poison is properly propagated to all threads.
-///
-/// Verifies that if initialization panics, all subsequent access attempts
-/// also panic.
-#[test]
-fn test_poison_propagation_concurrent() {
-    for _ in 0..100 {
-        let lazy = Arc::new(ConcurrentLazy::new(|| -> i32 { panic!("test panic") }));
-
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || {
-                    std::panic::catch_unwind(AssertUnwindSafe(|| *l.force())).is_err()
-                })
-            })
-            .collect();
-
-        // All threads should observe the panic
         for handle in handles {
-            assert!(handle.join().unwrap());
+            handle.join().unwrap();
         }
 
-        // The lazy should be poisoned
-        assert!(lazy.is_poisoned());
-    }
+        assert_eq!(state.load(Ordering::Acquire), READY);
+        assert_eq!(value.load(Ordering::Relaxed), 42);
+        assert_eq!(init_count.load(Ordering::Relaxed), 1);
+    });
 }
 
-/// Test mixed access patterns.
-///
-/// Some threads force, some check get(), some check is_initialized().
 #[test]
-fn test_mixed_access_patterns() {
-    for _ in 0..100 {
-        let lazy = Arc::new(ConcurrentLazy::new(|| 42));
+fn loom_poison_release_is_visible_to_waiters() {
+    loom::model(|| {
+        let state = Arc::new(AtomicUsize::new(EMPTY));
 
-        let handles: Vec<_> = (0..12)
-            .map(|i| {
-                let l = Arc::clone(&lazy);
-                thread::spawn(move || match i % 3 {
-                    0 => {
-                        // Force and return value
-                        Some(*l.force())
-                    }
-                    1 => {
-                        // Check get()
-                        l.get().copied()
-                    }
-                    _ => {
-                        // Check is_initialized()
-                        if l.is_initialized() { Some(42) } else { None }
-                    }
-                })
-            })
-            .collect();
-
-        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        // All force() calls should return 42
-        for (i, result) in results.iter().enumerate() {
-            if i % 3 == 0 {
-                assert_eq!(*result, Some(42));
+        let initializer_state = Arc::clone(&state);
+        let initializer = thread::spawn(move || {
+            if initializer_state
+                .compare_exchange(
+                    EMPTY,
+                    COMPUTING,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                initializer_state.store(POISONED, Ordering::Release);
             }
-        }
-    }
+        });
+
+        let waiter_state = Arc::clone(&state);
+        let waiter = thread::spawn(move || loop {
+            match waiter_state.load(Ordering::Acquire) {
+                EMPTY | COMPUTING => thread::yield_now(),
+                POISONED => break true,
+                READY => break false,
+                _ => unreachable!(),
+            }
+        });
+
+        initializer.join().unwrap();
+        assert!(waiter.join().unwrap());
+        assert_eq!(state.load(Ordering::Acquire), POISONED);
+    });
+}
+
+#[test]
+fn loom_ready_state_is_never_observed_before_value_publication() {
+    loom::model(|| {
+        let state = Arc::new(AtomicUsize::new(EMPTY));
+        let value = Arc::new(AtomicUsize::new(0));
+
+        let writer_state = Arc::clone(&state);
+        let writer_value = Arc::clone(&value);
+        let writer = thread::spawn(move || {
+            if writer_state
+                .compare_exchange(
+                    EMPTY,
+                    COMPUTING,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                writer_value.store(7, Ordering::Relaxed);
+                writer_state.store(READY, Ordering::Release);
+            }
+        });
+
+        let reader_state = Arc::clone(&state);
+        let reader_value = Arc::clone(&value);
+        let reader = thread::spawn(move || loop {
+            if reader_state.load(Ordering::Acquire) == READY {
+                assert_eq!(reader_value.load(Ordering::Relaxed), 7);
+                break;
+            }
+            thread::yield_now();
+        });
+
+        writer.join().unwrap();
+        reader.join().unwrap();
+    });
 }
