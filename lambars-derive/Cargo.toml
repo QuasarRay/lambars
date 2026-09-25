@@ -9,6 +9,10 @@ license = "MIT"
 repository = "https://github.com/QuasarRay/lambars"
 keywords = ["functional", "derive", "lens", "prism", "optics"]
 categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
+include = [
+  "src/**",
+  "Cargo.toml",
+]
 
 [lib]
 proc-macro = true
