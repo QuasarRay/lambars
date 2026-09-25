@@ -4,6 +4,63 @@
 
 /// Canonical specifications currently discharged semantically by Kani.
 pub const KANI_SEMANTIC_COVERAGE: &[&str] = &[
+    "applicative_identity_homomorphism_law_holds",
+    "applicative_identity_identity_law_holds",
+    "applicative_identity_map2_matches_pure_function_application",
+    "applicative_identity_product_preserves_left_then_right_value_order",
+    "applicative_identity_pure_does_not_introduce_extra_effects",
+    "applicative_option_homomorphism_law_holds",
+    "applicative_option_identity_law_holds",
+    "applicative_option_map2_matches_pure_function_application",
+    "applicative_option_product_preserves_left_then_right_value_order",
+    "applicative_option_pure_does_not_introduce_extra_effects",
+    "applicative_result_homomorphism_law_holds",
+    "applicative_result_identity_law_holds",
+    "applicative_result_map2_matches_pure_function_application",
+    "applicative_result_product_preserves_left_then_right_value_order",
+    "applicative_result_pure_does_not_introduce_extra_effects",
+    "functor_box_composition_law_holds",
+    "functor_box_fmap_invokes_mapping_function_exactly_once_per_present_element",
+    "functor_box_fmap_preserves_structure_shape",
+    "functor_box_identity_law_holds",
+    "functor_identity_composition_law_holds",
+    "functor_identity_fmap_invokes_mapping_function_exactly_once_per_present_element",
+    "functor_identity_fmap_preserves_structure_shape",
+    "functor_identity_identity_law_holds",
+    "functor_option_composition_law_holds",
+    "functor_option_fmap_handles_empty_structure",
+    "functor_option_fmap_invokes_mapping_function_exactly_once_per_present_element",
+    "functor_option_fmap_preserves_structure_shape",
+    "functor_option_identity_law_holds",
+    "functor_result_composition_law_holds",
+    "functor_result_fmap_handles_empty_structure",
+    "functor_result_fmap_invokes_mapping_function_exactly_once_per_present_element",
+    "functor_result_fmap_preserves_structure_shape",
+    "functor_result_identity_law_holds",
+    "monad_box_and_then_matches_flat_map",
+    "monad_box_associativity_law_holds",
+    "monad_box_flatten_matches_flat_map_identity",
+    "monad_box_left_identity_law_holds",
+    "monad_box_right_identity_law_holds",
+    "monad_box_then_discards_first_value_but_preserves_first_effects",
+    "monad_identity_and_then_matches_flat_map",
+    "monad_identity_associativity_law_holds",
+    "monad_identity_flatten_matches_flat_map_identity",
+    "monad_identity_left_identity_law_holds",
+    "monad_identity_right_identity_law_holds",
+    "monad_identity_then_discards_first_value_but_preserves_first_effects",
+    "monad_option_and_then_matches_flat_map",
+    "monad_option_associativity_law_holds",
+    "monad_option_flatten_matches_flat_map_identity",
+    "monad_option_left_identity_law_holds",
+    "monad_option_right_identity_law_holds",
+    "monad_option_then_discards_first_value_but_preserves_first_effects",
+    "monad_result_and_then_matches_flat_map",
+    "monad_result_associativity_law_holds",
+    "monad_result_flatten_matches_flat_map_identity",
+    "monad_result_left_identity_law_holds",
+    "monad_result_right_identity_law_holds",
+    "monad_result_then_discards_first_value_but_preserves_first_effects",
     "semigroup_max_i64_associativity_law_holds",
     "semigroup_max_i64_combine_preserves_documented_operand_order",
     "semigroup_min_i64_associativity_law_holds",
@@ -130,6 +187,10 @@ mod compose;
 mod either;
 #[cfg(kani)]
 mod metaverification;
+#[cfg(kani)]
+mod functor_monad_fixed;
+#[cfg(kani)]
+mod symbolic;
 #[cfg(kani)]
 mod typeclass_core;
 
