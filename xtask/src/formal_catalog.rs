@@ -54,9 +54,13 @@ pub fn run(args: FormalCatalogArgs) -> anyhow::Result<()> {
 
 fn validate(path: &PathBuf) -> anyhow::Result<()> {
     let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let catalog: Catalog = serde_json::from_slice(&bytes).context("failed to parse formal catalog")?;
+    let catalog: Catalog =
+        serde_json::from_slice(&bytes).context("failed to parse formal catalog")?;
     if catalog.schema_version != 1 {
-        bail!("unsupported formal catalog schema version {}", catalog.schema_version);
+        bail!(
+            "unsupported formal catalog schema version {}",
+            catalog.schema_version
+        );
     }
     if catalog.count != 2_533 || catalog.specs.len() != 2_533 {
         bail!("formal catalog must contain exactly 2533 specs");

@@ -39,7 +39,10 @@ fn main() {
         rust.push_str("required_backends: BackendSet::BOTH,\n},\n");
     }
     rust.push_str("];\n");
-    rust.push_str(&format!("pub const SPEC_COUNT: usize = {};\n", catalog.specs.len()));
+    rust.push_str(&format!(
+        "pub const SPEC_COUNT: usize = {};\n",
+        catalog.specs.len()
+    ));
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     fs::write(out.join("formal_catalog.rs"), rust).expect("write generated formal catalog");

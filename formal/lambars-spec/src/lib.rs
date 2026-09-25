@@ -147,20 +147,35 @@ pub fn validate_catalog() -> Vec<CatalogIssue> {
     let mut ids = BTreeSet::new();
     let mut names = BTreeSet::new();
     if all_specs().len() != SPEC_COUNT {
-        issues.push(CatalogIssue { spec_name: None, message: "count mismatch" });
+        issues.push(CatalogIssue {
+            spec_name: None,
+            message: "count mismatch",
+        });
     }
     for spec in all_specs() {
         if !ids.insert(spec.id) {
-            issues.push(CatalogIssue { spec_name: Some(spec.name), message: "duplicate id" });
+            issues.push(CatalogIssue {
+                spec_name: Some(spec.name),
+                message: "duplicate id",
+            });
         }
         if !names.insert(spec.name) {
-            issues.push(CatalogIssue { spec_name: Some(spec.name), message: "duplicate name" });
+            issues.push(CatalogIssue {
+                spec_name: Some(spec.name),
+                message: "duplicate name",
+            });
         }
         if !spec.required_backends.contains(BackendSet::BOTH) {
-            issues.push(CatalogIssue { spec_name: Some(spec.name), message: "both backends are required" });
+            issues.push(CatalogIssue {
+                spec_name: Some(spec.name),
+                message: "both backends are required",
+            });
         }
         if !is_snake_case_identifier(spec.name) {
-            issues.push(CatalogIssue { spec_name: Some(spec.name), message: "invalid canonical Rust identifier" });
+            issues.push(CatalogIssue {
+                spec_name: Some(spec.name),
+                message: "invalid canonical Rust identifier",
+            });
         }
     }
     issues
@@ -168,7 +183,9 @@ pub fn validate_catalog() -> Vec<CatalogIssue> {
 
 fn is_snake_case_identifier(value: &str) -> bool {
     let mut chars = value.chars();
-    let Some(first) = chars.next() else { return false; };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     (first.is_ascii_lowercase() || first == '_')
         && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
 }

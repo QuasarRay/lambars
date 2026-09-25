@@ -154,7 +154,11 @@ mod tests {
     fn kani_semantic_coverage_manifest_contains_no_duplicate_names() {
         assert_eq!(
             KANI_SEMANTIC_COVERAGE.len(),
-            KANI_SEMANTIC_COVERAGE.iter().copied().collect::<BTreeSet<_>>().len()
+            KANI_SEMANTIC_COVERAGE
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len()
         );
     }
 }

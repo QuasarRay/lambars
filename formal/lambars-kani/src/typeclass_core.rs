@@ -44,8 +44,8 @@ macro_rules! associative_ord_wrapper_proofs {
             let left = $wrapper::new(first)
                 .combine($wrapper::new(second))
                 .combine($wrapper::new(third));
-            let right = $wrapper::new(first)
-                .combine($wrapper::new(second).combine($wrapper::new(third)));
+            let right =
+                $wrapper::new(first).combine($wrapper::new(second).combine($wrapper::new(third)));
             assert_eq!(left, right);
         });
 
@@ -125,13 +125,19 @@ monoid_identity_and_empty_proofs!(
 kani_proof!(monoid_option_sum_i64_left_identity_law_holds, {
     let value: i64 = kani::any();
     let wrapped = Some(Sum::new(value));
-    assert_eq!(<Option<Sum<i64>> as Monoid>::empty().combine(wrapped), wrapped);
+    assert_eq!(
+        <Option<Sum<i64>> as Monoid>::empty().combine(wrapped),
+        wrapped
+    );
 });
 
 kani_proof!(monoid_option_sum_i64_right_identity_law_holds, {
     let value: i64 = kani::any();
     let wrapped = Some(Sum::new(value));
-    assert_eq!(wrapped.combine(<Option<Sum<i64>> as Monoid>::empty()), wrapped);
+    assert_eq!(
+        wrapped.combine(<Option<Sum<i64>> as Monoid>::empty()),
+        wrapped
+    );
 });
 
 kani_proof!(monoid_option_sum_i64_combine_all_empty_returns_identity, {
@@ -141,22 +147,25 @@ kani_proof!(monoid_option_sum_i64_combine_all_empty_returns_identity, {
 
 kani_proof!(alternative_option_left_identity_law_holds, {
     let value = symbolic_option_bool();
-    assert_eq!(<Option<()> as Alternative>::empty::<bool>().alt(value), value);
+    assert_eq!(
+        <Option<()> as Alternative>::empty::<bool>().alt(value),
+        value
+    );
 });
 
 kani_proof!(alternative_option_right_identity_law_holds, {
     let value = symbolic_option_bool();
-    assert_eq!(value.alt(<Option<()> as Alternative>::empty::<bool>()), value);
+    assert_eq!(
+        value.alt(<Option<()> as Alternative>::empty::<bool>()),
+        value
+    );
 });
 
 kani_proof!(alternative_option_associativity_law_holds, {
     let first = symbolic_option_bool();
     let second = symbolic_option_bool();
     let third = symbolic_option_bool();
-    assert_eq!(
-        first.alt(second).alt(third),
-        first.alt(second.alt(third))
-    );
+    assert_eq!(first.alt(second).alt(third), first.alt(second.alt(third)));
 });
 
 kani_proof!(alternative_option_left_distributivity_over_fmap_holds, {
@@ -203,14 +212,17 @@ kani_proof!(bifunctor_either_first_changes_only_first_type_parameter, {
     assert_eq!(value.first(|x| !x), expected);
 });
 
-kani_proof!(bifunctor_either_second_changes_only_second_type_parameter, {
-    let value = symbolic_either_bool();
-    let expected = match value.clone() {
-        Either::Left(x) => Either::Left(x),
-        Either::Right(x) => Either::Right(!x),
-    };
-    assert_eq!(value.second(|x| !x), expected);
-});
+kani_proof!(
+    bifunctor_either_second_changes_only_second_type_parameter,
+    {
+        let value = symbolic_either_bool();
+        let expected = match value.clone() {
+            Either::Left(x) => Either::Left(x),
+            Either::Right(x) => Either::Right(!x),
+        };
+        assert_eq!(value.second(|x| !x), expected);
+    }
+);
 
 kani_proof!(bifunctor_result_identity_law_holds, {
     let value = symbolic_result_bool();
@@ -237,11 +249,14 @@ kani_proof!(bifunctor_result_first_changes_only_first_type_parameter, {
     assert_eq!(value.first(|x| !x), expected);
 });
 
-kani_proof!(bifunctor_result_second_changes_only_second_type_parameter, {
-    let value = symbolic_result_bool();
-    let expected = value.map(|x| !x);
-    assert_eq!(value.second(|x| !x), expected);
-});
+kani_proof!(
+    bifunctor_result_second_changes_only_second_type_parameter,
+    {
+        let value = symbolic_result_bool();
+        let expected = value.map(|x| !x);
+        assert_eq!(value.second(|x| !x), expected);
+    }
+);
 
 kani_proof!(bifunctor_tuple_identity_law_holds, {
     let value = (kani::any::<bool>(), kani::any::<bool>());
@@ -274,17 +289,23 @@ kani_proof!(bifunctor_tuple_second_changes_only_second_type_parameter, {
     assert_eq!((first, second).second(|x| !x), (first, !second));
 });
 
-kani_proof!(option_type_constructor_with_type_replaces_only_inner_type, {
-    let value: <Option<i32> as TypeConstructor>::WithType<bool> = Some(true);
-    assert_eq!(value, Some(true));
-});
+kani_proof!(
+    option_type_constructor_with_type_replaces_only_inner_type,
+    {
+        let value: <Option<i32> as TypeConstructor>::WithType<bool> = Some(true);
+        assert_eq!(value, Some(true));
+    }
+);
 
-kani_proof!(result_type_constructor_with_type_preserves_error_type_and_replaces_success_type, {
-    let value: <Result<i32, u16> as TypeConstructor>::WithType<bool> = Ok(true);
-    let error: <Result<i32, u16> as TypeConstructor>::WithType<bool> = Err(7_u16);
-    assert_eq!(value, Ok(true));
-    assert_eq!(error, Err(7_u16));
-});
+kani_proof!(
+    result_type_constructor_with_type_preserves_error_type_and_replaces_success_type,
+    {
+        let value: <Result<i32, u16> as TypeConstructor>::WithType<bool> = Ok(true);
+        let error: <Result<i32, u16> as TypeConstructor>::WithType<bool> = Err(7_u16);
+        assert_eq!(value, Ok(true));
+        assert_eq!(error, Err(7_u16));
+    }
+);
 
 kani_proof!(vec_type_constructor_with_type_replaces_only_element_type, {
     let value: <Vec<i32> as TypeConstructor>::WithType<bool> = Vec::new();
@@ -296,10 +317,13 @@ kani_proof!(box_type_constructor_with_type_replaces_only_inner_type, {
     assert!(*value);
 });
 
-kani_proof!(identity_type_constructor_with_type_replaces_only_inner_type, {
-    let value: <Identity<i32> as TypeConstructor>::WithType<bool> = Identity::new(true);
-    assert!(*value.as_inner());
-});
+kani_proof!(
+    identity_type_constructor_with_type_replaces_only_inner_type,
+    {
+        let value: <Identity<i32> as TypeConstructor>::WithType<bool> = Identity::new(true);
+        assert!(*value.as_inner());
+    }
+);
 
 macro_rules! wrapper_roundtrip_proof {
     ($name:ident, $wrapper:ident) => {
@@ -313,13 +337,16 @@ macro_rules! wrapper_roundtrip_proof {
     };
 }
 
-kani_proof!(identity_new_into_inner_as_inner_and_as_inner_mut_are_consistent, {
-    let value: i64 = kani::any();
-    let mut wrapped = Identity::new(value);
-    assert_eq!(*wrapped.as_inner(), value);
-    *wrapped.as_inner_mut() = value.wrapping_add(1);
-    assert_eq!(wrapped.into_inner(), value.wrapping_add(1));
-});
+kani_proof!(
+    identity_new_into_inner_as_inner_and_as_inner_mut_are_consistent,
+    {
+        let value: i64 = kani::any();
+        let mut wrapped = Identity::new(value);
+        assert_eq!(*wrapped.as_inner(), value);
+        *wrapped.as_inner_mut() = value.wrapping_add(1);
+        assert_eq!(wrapped.into_inner(), value.wrapping_add(1));
+    }
+);
 
 wrapper_roundtrip_proof!(
     sum_new_into_inner_as_inner_and_as_inner_mut_are_consistent,
