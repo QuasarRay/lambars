@@ -1,19 +1,16 @@
-#![allow(unsafe_code)]
 //! Thread-safe lazy evaluation with memoization.
 //!
 //! This module provides the `ConcurrentLazy<T, F>` type for thread-safe lazy evaluation.
 //! Values are computed only when needed and cached for subsequent accesses.
 //! Unlike [`Lazy`](super::Lazy), this type can be safely shared between threads.
 //!
-//! # Safety
+//! # Storage model
 //!
-//! This module uses unsafe code to implement a lock-free state machine.
-//! The following invariants are maintained:
-//! - `value` is only initialized when `state` is `STATE_READY`
-//! - `initializer` is `Some` only when `state` is `STATE_EMPTY`
-//! - Transition to `STATE_COMPUTING` is done via `compare_exchange` for exclusivity
-//! - Multiple threads can safely access via Atomic operations and adaptive
-//!   spin + `parking_lot::Condvar` blocking wait
+//! The memoized value is stored in `std::sync::OnceLock` and the one-shot
+//! initializer in `parking_lot::Mutex<Option<F>>`. The atomic state machine
+//! still controls poisoning, initialization ownership, re-entry detection, and
+//! waiter notification, but no unsafe storage or manual Send/Sync implementation
+//! is required.
 //!
 //! # Referential Transparency Note
 //!
@@ -84,10 +81,10 @@
 //! }
 //! ```
 
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::RefCell;
 use std::fmt;
-use std::mem::{ManuallyDrop, MaybeUninit};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use parking_lot::{Condvar, Mutex};
@@ -379,26 +376,11 @@ pub const fn concurrent_lazy_wait_decision(
 pub struct ConcurrentLazy<T, F = fn() -> T> {
     // Cache line 1: hot path (frequently accessed by all threads)
     state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<T>>,
-    initializer: UnsafeCell<Option<F>>,
+    value: OnceLock<T>,
+    initializer: Mutex<Option<F>>,
     // Cache line 2: cold path (accessed only during initialization wait)
     wait_sync: CacheAligned<WaitSync>,
 }
-
-// # Safety
-//
-// Send implementation conditions: T: Send + Sync, F: Send
-// - T: Send: Value can be transferred to other threads
-// - T: Sync: Concurrent &T access from multiple threads is safe
-// - F: Send: Closure can be transferred to other threads
-//
-// Sync implementation conditions: T: Send + Sync, F: Send
-// - When sharing &ConcurrentLazy across threads, force() returns &T
-// - T: Sync makes sharing &T safe
-// - Atomic state machine ensures exactly-once initialization
-// - STATE_READY reads are synchronized via Acquire/Release
-unsafe impl<T: Send + Sync, F: Send> Send for ConcurrentLazy<T, F> {}
-unsafe impl<T: Send + Sync, F: Send> Sync for ConcurrentLazy<T, F> {}
 
 impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// Creates a new thread-safe lazy value with the given initialization function.
@@ -420,8 +402,8 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     pub const fn new(initializer: F) -> Self {
         Self {
             state: AtomicU8::new(STATE_EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-            initializer: UnsafeCell::new(Some(initializer)),
+            value: OnceLock::new(),
+            initializer: Mutex::new(Some(initializer)),
             wait_sync: CacheAligned(WaitSync::new()),
         }
     }
@@ -465,10 +447,10 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     pub fn force(&self) -> &T {
         let state = self.state.load(Ordering::Acquire);
         if state == STATE_READY {
-            // SAFETY: Transition to STATE_READY is done in do_init() after value.write()
-            // completes with Release ordering. The Acquire load here establishes
-            // happens-before relationship, guaranteeing that write is visible.
-            return unsafe { (*self.value.get()).assume_init_ref() };
+            return self
+                .value
+                .get()
+                .expect("ConcurrentLazy invariant violated: READY without a value");
         }
         self.force_slow(state)
     }
@@ -483,8 +465,10 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         loop {
             match state {
                 STATE_READY => {
-                    // SAFETY: Same as force() fast path.
-                    return unsafe { (*self.value.get()).assume_init_ref() };
+                    return self
+                        .value
+                        .get()
+                        .expect("ConcurrentLazy invariant violated: READY without a value");
                 }
                 STATE_POISONED => {
                     panic!("ConcurrentLazy instance has been poisoned");
@@ -560,18 +544,14 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             completed: false,
         };
 
-        // SAFETY: compare_exchange succeeded, so this invocation owns initialization.
-        let Some(initializer) = (unsafe { (*self.initializer.get()).take() }) else {
+        let initializer = { self.initializer.lock().take() };
+        let Some(initializer) = initializer else {
             return Err(ConcurrentLazyPoisonedError);
         };
 
         let result = catch_unwind(AssertUnwindSafe(initializer));
         let succeeded = match result {
-            Ok(value) => {
-                // SAFETY: only the owner of STATE_COMPUTING reaches this write.
-                unsafe { (*self.value.get()).write(value) };
-                true
-            }
+            Ok(value) => self.value.set(value).is_ok(),
             Err(_) => false,
         };
 
@@ -589,8 +569,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             return Err(ConcurrentLazyPoisonedError);
         }
 
-        // SAFETY: successful initialization wrote value before READY publication.
-        Ok(unsafe { (*self.value.get()).assume_init_ref() })
+        self.value.get().ok_or(ConcurrentLazyPoisonedError)
     }
 
     /// Number of spin iterations before yielding to the OS scheduler.
@@ -663,57 +642,18 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// Initializer panics are caught and returned as
     /// `Err(ConcurrentLazyPoisonedError)`.
     pub fn into_inner(self) -> Result<T, ConcurrentLazyPoisonedError> {
-        let mut this = ManuallyDrop::new(self);
-        let state = this.state.load(Ordering::Acquire);
-
-        match state {
-            STATE_READY => {
-                // SAFETY: STATE_READY guarantees value is initialized.
-                let value = unsafe { (*this.value.get()).assume_init_read() };
-                // Set state to STATE_EMPTY so that Drop impl does not call
-                // assume_init_drop() on the already-moved value.
-                this.state.store(STATE_EMPTY, Ordering::Relaxed);
-                // SAFETY: Value has been moved out and state is no longer READY,
-                // so Drop will not attempt to drop the value again. This ensures
-                // non-value fields (WaitSync, initializer) are properly released.
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Ok(value)
-            }
-            STATE_POISONED | STATE_COMPUTING => {
-                // SAFETY: State is not READY, so Drop will not attempt to drop
-                // the uninitialized value. This releases non-value fields.
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Err(ConcurrentLazyPoisonedError)
-            }
+        match self.state.load(Ordering::Acquire) {
+            STATE_READY => self.value.into_inner().ok_or(ConcurrentLazyPoisonedError),
+            STATE_POISONED | STATE_COMPUTING => Err(ConcurrentLazyPoisonedError),
             STATE_EMPTY => {
-                // SAFETY: STATE_EMPTY guarantees initializer is Some.
-                let initializer = unsafe { (*this.initializer.get()).take() }.ok_or_else(|| {
-                    // SAFETY: Drop non-value fields before returning error.
-                    unsafe { ManuallyDrop::drop(&mut this) };
-                    ConcurrentLazyPoisonedError
-                })?;
+                let Some(initializer) = self.initializer.into_inner() else {
+                    return Err(ConcurrentLazyPoisonedError);
+                };
 
-                let result = catch_unwind(AssertUnwindSafe(initializer));
-                #[allow(clippy::single_match_else, clippy::option_if_let_else)]
-                match result {
-                    Ok(value) => {
-                        // SAFETY: Drop non-value fields (initializer already taken).
-                        unsafe { ManuallyDrop::drop(&mut this) };
-                        Ok(value)
-                    }
-                    Err(_) => {
-                        this.state.store(STATE_POISONED, Ordering::Release);
-                        // SAFETY: No initialized value is present.
-                        unsafe { ManuallyDrop::drop(&mut this) };
-                        Err(ConcurrentLazyPoisonedError)
-                    }
-                }
+                catch_unwind(AssertUnwindSafe(initializer))
+                    .map_err(|_| ConcurrentLazyPoisonedError)
             }
-            _ => {
-                // SAFETY: Invalid state does not claim an initialized value.
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Err(ConcurrentLazyPoisonedError)
-            }
+            _ => Err(ConcurrentLazyPoisonedError),
         }
     }
 }
@@ -731,10 +671,14 @@ impl<T> ConcurrentLazy<T, fn() -> T> {
     /// ```
     #[inline]
     pub fn new_with_value(value: T) -> Self {
+        let cell = OnceLock::new();
+        if cell.set(value).is_err() {
+            unreachable!("new OnceLock unexpectedly contained a value");
+        }
         Self {
             state: AtomicU8::new(STATE_READY),
-            value: UnsafeCell::new(MaybeUninit::new(value)),
-            initializer: UnsafeCell::new(None),
+            value: cell,
+            initializer: Mutex::new(None),
             wait_sync: CacheAligned(WaitSync::new()),
         }
     }
@@ -778,8 +722,7 @@ impl<T, F> ConcurrentLazy<T, F> {
     #[inline]
     pub fn get(&self) -> Option<&T> {
         if self.state.load(Ordering::Acquire) == STATE_READY {
-            // SAFETY: STATE_READY means value is initialized.
-            Some(unsafe { (*self.value.get()).assume_init_ref() })
+            self.value.get()
         } else {
             None
         }
@@ -892,9 +835,10 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
 
             match concurrent_lazy_wait_decision(state, reentrant, timed_out) {
                 ConcurrentLazyWaitDecision::Ready => {
-                    // SAFETY: STATE_READY is published with Release after value.write();
-                    // this Acquire load observes the initialized value.
-                    return Ok(unsafe { (*self.value.get()).assume_init_ref() });
+                    return self
+                        .value
+                        .get()
+                        .ok_or(ConcurrentLazyWaitError::Poisoned);
                 }
                 ConcurrentLazyWaitDecision::NotStarted => {
                     return Err(ConcurrentLazyWaitError::NotStarted);
@@ -995,8 +939,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
 
             match concurrent_lazy_try_force_decision(state, reentrant) {
                 ConcurrentLazyTryForceDecision::Ready => {
-                    // SAFETY: READY guarantees initialized value.
-                    return Ok(unsafe { (*self.value.get()).assume_init_ref() });
+                    return self.value.get().ok_or(ConcurrentLazyPoisonedError);
                 }
                 ConcurrentLazyTryForceDecision::Initialize => {
                     match self.state.compare_exchange_weak(
@@ -1230,14 +1173,6 @@ impl<T: fmt::Display, F> fmt::Display for ConcurrentLazy<T, F> {
     }
 }
 
-impl<T, F> Drop for ConcurrentLazy<T, F> {
-    fn drop(&mut self) {
-        if *self.state.get_mut() == STATE_READY {
-            // SAFETY: STATE_READY guarantees value is initialized; &mut self guarantees exclusivity.
-            unsafe { (*self.value.get()).assume_init_drop() };
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

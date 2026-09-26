@@ -69,7 +69,7 @@ fxhash = []
 ahash = []
 
 [lints.rust]
-unsafe_code = "deny"
+unsafe_code = "forbid"
 
 [lints.clippy]
 

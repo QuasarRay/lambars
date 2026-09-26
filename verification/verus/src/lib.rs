@@ -726,4 +726,18 @@ pub proof fn sc026_freer_execution_mode_preserves_decision(
 {
 }
 
+
+/// SC-035: after replacing manual unsafe storage with OnceCell/OnceLock,
+/// the externally verified state classifiers remain total and unchanged.
+pub proof fn sc035_safe_storage_preserves_total_lazy_models(
+    lazy_state: int,
+    concurrent_state: int,
+    reentrant: bool,
+)
+    ensures
+        0 <= lazy_force_decision_model(lazy_state) <= 2,
+        0 <= concurrent_lazy_try_force_decision_model(concurrent_state, reentrant) <= 3,
+{
+}
+
 } // verus!

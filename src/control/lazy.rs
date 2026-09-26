@@ -1,16 +1,14 @@
-#![allow(unsafe_code)]
 //! Lazy evaluation with memoization.
 //!
 //! This module provides the `Lazy<T, F>` type for lazy evaluation.
 //! Values are computed only when needed and cached for subsequent accesses.
 //!
-//! # Safety
+//! # Storage model
 //!
-//! This module uses unsafe code to implement a lock-free state machine.
-//! The following invariants are maintained:
-//! - `value` is only initialized when `state` is `STATE_READY`
-//! - `initializer` is `Some` only when `state` is `STATE_EMPTY`
-//! - Transition to `STATE_COMPUTING` is done via `compare_exchange` for exclusivity
+//! The memoized value is stored in `std::cell::OnceCell` and the one-shot
+//! initializer in `RefCell<Option<F>>`. No unsafe code or manual initialization/
+//! destruction is required. The state byte is retained for poisoning and re-entry
+//! semantics and for compatibility with the formal state model.
 //!
 //! # Referential Transparency Note
 //!
@@ -48,9 +46,8 @@
 //! assert_eq!(*value2, 42);
 //! ```
 
-use std::cell::UnsafeCell;
+use std::cell::{OnceCell, RefCell};
 use std::fmt;
-use std::mem::{ManuallyDrop, MaybeUninit};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -157,17 +154,9 @@ pub const fn lazy_force_decision(state: u8) -> LazyForceDecision {
 /// ```
 pub struct Lazy<T, F = fn() -> T> {
     state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<T>>,
-    initializer: UnsafeCell<Option<F>>,
+    value: OnceCell<T>,
+    initializer: RefCell<Option<F>>,
 }
-
-// # Safety
-//
-// Lazy is for single-threaded use, so we do NOT implement Sync.
-// Send is safe when T and F are Send:
-// - Value transfer is ownership transfer, no data races occur
-// - Atomic state operations work correctly after transfer
-unsafe impl<T: Send, F: Send> Send for Lazy<T, F> {}
 
 impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// Creates a new lazy value with the given initialization function.
@@ -193,8 +182,8 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     pub const fn new(initializer: F) -> Self {
         Self {
             state: AtomicU8::new(STATE_EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-            initializer: UnsafeCell::new(Some(initializer)),
+            value: OnceCell::new(),
+            initializer: RefCell::new(Some(initializer)),
         }
     }
 
@@ -227,13 +216,10 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
         let state = self.state.load(Ordering::Acquire);
 
         match state {
-            STATE_READY => {
-                // SAFETY: Transition to STATE_READY is done in initialize() after value.write()
-                // completes with Release ordering. The Acquire load here establishes
-                // happens-before relationship, guaranteeing that write is visible.
-                // Therefore value is initialized and assume_init_ref() is safe.
-                unsafe { (*self.value.get()).assume_init_ref() }
-            }
+            STATE_READY => self
+                .value
+                .get()
+                .expect("Lazy invariant violated: READY without a value"),
             STATE_POISONED => {
                 panic!("Lazy instance has been poisoned")
             }
@@ -274,11 +260,10 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
         let state = *self.state.get_mut();
 
         match state {
-            STATE_READY => {
-                // SAFETY: We have &mut self, so exclusive access is guaranteed.
-                // State is STATE_READY, so value is initialized.
-                unsafe { (*self.value.get()).assume_init_mut() }
-            }
+            STATE_READY => self
+                .value
+                .get_mut()
+                .expect("Lazy invariant violated: READY without a value"),
             STATE_POISONED => {
                 panic!("Lazy instance has been poisoned")
             }
@@ -310,21 +295,19 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
             Ordering::Acquire,
         ) {
             Ok(_) => {
-                // SAFETY: compare_exchange succeeded, so this invocation owns initialization.
-                let Some(initializer) = (unsafe { (*self.initializer.get()).take() }) else {
+                let Some(initializer) = self.initializer.borrow_mut().take() else {
                     self.state.store(STATE_POISONED, Ordering::Release);
                     return Err(LazyPoisonedError);
                 };
 
                 match catch_unwind(AssertUnwindSafe(initializer)) {
                     Ok(value) => {
-                        // SAFETY: This invocation uniquely owns STATE_COMPUTING.
-                        unsafe {
-                            (*self.value.get()).write(value);
+                        if self.value.set(value).is_err() {
+                            self.state.store(STATE_POISONED, Ordering::Release);
+                            return Err(LazyPoisonedError);
                         }
                         self.state.store(STATE_READY, Ordering::Release);
-                        // SAFETY: value was initialized immediately before READY publication.
-                        Ok(unsafe { (*self.value.get()).assume_init_ref() })
+                        self.value.get().ok_or(LazyPoisonedError)
                     }
                     Err(_) => {
                         self.state.store(STATE_POISONED, Ordering::Release);
@@ -333,10 +316,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
                 }
             }
             Err(current) => match lazy_force_decision(current) {
-                LazyForceDecision::Ready => {
-                    // SAFETY: READY guarantees initialized value.
-                    Ok(unsafe { (*self.value.get()).assume_init_ref() })
-                }
+                LazyForceDecision::Ready => self.value.get().ok_or(LazyPoisonedError),
                 LazyForceDecision::Initialize | LazyForceDecision::Error => {
                     Err(LazyPoisonedError)
                 }
@@ -346,30 +326,25 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
 
     /// Performs the initialization (mutable self version).
     fn initialize_mut(&mut self) -> &mut T {
-        // We have &mut self, so no need for atomic operations
         *self.state.get_mut() = STATE_COMPUTING;
 
-        // SAFETY: We have &mut self, so exclusive access is guaranteed.
-        let initializer =
-            unsafe { (*self.initializer.get()).take() }.expect("initializer already consumed");
+        let initializer = self
+            .initializer
+            .get_mut()
+            .take()
+            .expect("initializer already consumed");
 
-        // Catch panic
-        let result = catch_unwind(AssertUnwindSafe(initializer));
-
-        // Note: Using match for clarity - the Err case panics so clippy's
-        // suggestion to use if let or map_or_else is not appropriate
-        #[allow(clippy::single_match_else, clippy::option_if_let_else)]
-        match result {
+        match catch_unwind(AssertUnwindSafe(initializer)) {
             Ok(value) => {
-                // SAFETY: We have &mut self, exclusive access guaranteed.
-                unsafe {
-                    (*self.value.get()).write(value);
+                if self.value.set(value).is_err() {
+                    *self.state.get_mut() = STATE_POISONED;
+                    panic!("Lazy invariant violated: value initialized twice");
                 }
 
                 *self.state.get_mut() = STATE_READY;
-
-                // SAFETY: Just initialized with write().
-                unsafe { (*self.value.get()).assume_init_mut() }
+                self.value
+                    .get_mut()
+                    .expect("Lazy invariant violated: READY without a value")
             }
             Err(_) => {
                 *self.state.get_mut() = STATE_POISONED;
@@ -377,6 +352,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
             }
         }
     }
+
 }
 
 impl<T> Lazy<T, fn() -> T> {
@@ -399,10 +375,14 @@ impl<T> Lazy<T, fn() -> T> {
     /// ```
     #[inline]
     pub fn new_with_value(value: T) -> Self {
+        let cell = OnceCell::new();
+        if cell.set(value).is_err() {
+            unreachable!("new OnceCell unexpectedly contained a value");
+        }
         Self {
             state: AtomicU8::new(STATE_READY),
-            value: UnsafeCell::new(MaybeUninit::new(value)),
-            initializer: UnsafeCell::new(None),
+            value: cell,
+            initializer: RefCell::new(None),
         }
     }
 
@@ -449,9 +429,7 @@ impl<T, F> Lazy<T, F> {
     /// ```
     pub fn get(&self) -> Option<&T> {
         if self.state.load(Ordering::Acquire) == STATE_READY {
-            // SAFETY: STATE_READY means value is initialized.
-            // Acquire ordering ensures visibility.
-            Some(unsafe { (*self.value.get()).assume_init_ref() })
+            self.value.get()
         } else {
             None
         }
@@ -484,11 +462,7 @@ impl<T, F> Lazy<T, F> {
     pub fn get_mut(&mut self) -> Option<&mut T> {
         let state = *self.state.get_mut();
         match state {
-            STATE_READY => {
-                // SAFETY: We have &mut self, exclusive access guaranteed.
-                // State is STATE_READY, so value is initialized.
-                Some(unsafe { (*self.value.get()).assume_init_mut() })
-            }
+            STATE_READY => self.value.get_mut(),
             STATE_POISONED => panic!("Lazy instance has been poisoned"),
             _ => None,
         }
@@ -573,10 +547,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
         let state = self.state.load(Ordering::Acquire);
 
         match lazy_force_decision(state) {
-            LazyForceDecision::Ready => {
-                // SAFETY: READY guarantees initialized value.
-                Ok(unsafe { (*self.value.get()).assume_init_ref() })
-            }
+            LazyForceDecision::Ready => self.value.get().ok_or(LazyPoisonedError),
             LazyForceDecision::Initialize => self.initialize_result(),
             LazyForceDecision::Error => Err(LazyPoisonedError),
         }
@@ -609,51 +580,18 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// Returns `Err(LazyPoisonedError)` if the `Lazy` instance has been poisoned.
     ///
     /// Initializer panics are caught and returned as `Err(LazyPoisonedError)`.
-    pub fn into_inner(self) -> Result<T, LazyPoisonedError> {
-        let mut this = ManuallyDrop::new(self);
-        let state = this.state.load(Ordering::Acquire);
-
-        match state {
-            STATE_READY => {
-                // SAFETY: READY guarantees initialized value.
-                let value = unsafe { (*this.value.get()).assume_init_read() };
-                // Prevent Drop from dropping the moved value.
-                this.state.store(STATE_EMPTY, Ordering::Relaxed);
-                // SAFETY: value has been moved and state no longer claims READY.
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Ok(value)
-            }
-            STATE_POISONED | STATE_COMPUTING => {
-                // SAFETY: value is not initialized in these states.
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Err(LazyPoisonedError)
-            }
+    pub fn into_inner(mut self) -> Result<T, LazyPoisonedError> {
+        match self.state.load(Ordering::Acquire) {
+            STATE_READY => self.value.take().ok_or(LazyPoisonedError),
+            STATE_POISONED | STATE_COMPUTING => Err(LazyPoisonedError),
             STATE_EMPTY => {
-                // SAFETY: EMPTY owns an initializer unless an invariant was already violated.
-                let initializer = unsafe { (*this.initializer.get()).take() };
-                let Some(initializer) = initializer else {
-                    unsafe { ManuallyDrop::drop(&mut this) };
+                let Some(initializer) = self.initializer.get_mut().take() else {
                     return Err(LazyPoisonedError);
                 };
 
-                match catch_unwind(AssertUnwindSafe(initializer)) {
-                    Ok(value) => {
-                        // SAFETY: initializer was removed, value field was never initialized.
-                        unsafe { ManuallyDrop::drop(&mut this) };
-                        Ok(value)
-                    }
-                    Err(_) => {
-                        this.state.store(STATE_POISONED, Ordering::Release);
-                        // SAFETY: no initialized value is present.
-                        unsafe { ManuallyDrop::drop(&mut this) };
-                        Err(LazyPoisonedError)
-                    }
-                }
+                catch_unwind(AssertUnwindSafe(initializer)).map_err(|_| LazyPoisonedError)
             }
-            _ => {
-                unsafe { ManuallyDrop::drop(&mut this) };
-                Err(LazyPoisonedError)
-            }
+            _ => Err(LazyPoisonedError),
         }
     }
 }
@@ -851,10 +789,9 @@ impl<T: Default> Default for Lazy<T> {
 impl<T: fmt::Debug, F> fmt::Debug for Lazy<T, F> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.state.load(Ordering::Acquire) {
-            STATE_READY => {
-                // SAFETY: STATE_READY means value is initialized.
-                let value = unsafe { (*self.value.get()).assume_init_ref() };
-                fmt::Debug::fmt(value, formatter)
+            STATE_READY => match self.value.get() {
+                Some(value) => fmt::Debug::fmt(value, formatter),
+                None => formatter.write_str("<invalid>"),
             }
             STATE_EMPTY | STATE_COMPUTING => formatter.write_str("<uninit>"),
             STATE_POISONED => formatter.write_str("<poisoned>"),
@@ -866,10 +803,9 @@ impl<T: fmt::Debug, F> fmt::Debug for Lazy<T, F> {
 impl<T: fmt::Display, F> fmt::Display for Lazy<T, F> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.state.load(Ordering::Acquire) {
-            STATE_READY => {
-                // SAFETY: STATE_READY means value is initialized.
-                let value = unsafe { (*self.value.get()).assume_init_ref() };
-                fmt::Display::fmt(value, formatter)
+            STATE_READY => match self.value.get() {
+                Some(value) => fmt::Display::fmt(value, formatter),
+                None => formatter.write_str("<invalid>"),
             }
             STATE_EMPTY | STATE_COMPUTING => formatter.write_str("<uninit>"),
             STATE_POISONED => formatter.write_str("<poisoned>"),
@@ -878,18 +814,6 @@ impl<T: fmt::Display, F> fmt::Display for Lazy<T, F> {
     }
 }
 
-impl<T, F> Drop for Lazy<T, F> {
-    fn drop(&mut self) {
-        // Only drop the value if it was initialized
-        if *self.state.get_mut() == STATE_READY {
-            // SAFETY: STATE_READY means value is initialized.
-            // We have &mut self, so exclusive access is guaranteed.
-            unsafe {
-                (*self.value.get()).assume_init_drop();
-            }
-        }
-    }
-}
 
 // Note: We intentionally do NOT implement Deref for Lazy.
 //

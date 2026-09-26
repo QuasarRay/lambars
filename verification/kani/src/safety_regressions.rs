@@ -634,6 +634,7 @@ mod async_pool_panic_contract_regressions {
 mod lazy_totality_regressions {
     use lambars_alias::control::{Lazy, LazyForceDecision, lazy_force_decision};
 
+    static_assertions::assert_impl_all!(Lazy<u8>: Send);
     static_assertions::assert_not_impl_any!(Lazy<u8>: Sync);
 
     fn lazy_state_is_total(state: u8) -> bool {
@@ -654,6 +655,15 @@ mod lazy_totality_regressions {
 
         let lazy = Lazy::new(|| 41u8);
         assert_eq!(lazy.try_force().copied(), Ok(41));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc035_safe_lazy_storage_memoizes_symbolic_value() {
+        let value: u8 = kani::any();
+        let lazy = Lazy::new(|| value);
+        assert_eq!(lazy.try_force().copied(), Ok(value));
+        assert_eq!(lazy.try_force().copied(), Ok(value));
     }
 
     #[cfg(kani)]
@@ -687,8 +697,10 @@ mod lazy_totality_regressions {
 #[cfg(any(test, kani))]
 mod concurrent_lazy_totality_regressions {
     use lambars_alias::control::{
-        ConcurrentLazyTryForceDecision, concurrent_lazy_try_force_decision,
+        ConcurrentLazy, ConcurrentLazyTryForceDecision, concurrent_lazy_try_force_decision,
     };
+
+    static_assertions::assert_impl_all!(ConcurrentLazy<u8>: Send, Sync);
 
     fn decision_is_total(state: u8, reentrant: bool) -> bool {
         matches!(
