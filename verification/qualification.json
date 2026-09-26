@@ -57,8 +57,15 @@
     },
     {
       "id": "SC-011",
-      "status": "open",
-      "release_blocking": true
+      "status": "closed",
+      "release_blocking": true,
+      "verification_domain": "repository_process",
+      "kani": "not_applicable",
+      "verus": "not_applicable",
+      "evidence": [
+        ".github/workflows/release.yml: publish requires qualification, verify, kani, verus, build-evidence",
+        "tests/repository_policy_regressions.rs: sc011 release dependency regression"
+      ]
     },
     {
       "id": "SC-012",
@@ -112,8 +119,15 @@
     },
     {
       "id": "SC-022",
-      "status": "open",
-      "release_blocking": true
+      "status": "closed",
+      "release_blocking": true,
+      "verification_domain": "repository_process",
+      "kani": "not_applicable",
+      "verus": "not_applicable",
+      "evidence": [
+        "verification/tools/check_package_contents.py: validates cargo package --list for both public crates",
+        ".github/workflows/release.yml: package-surface checker is release prerequisite"
+      ]
     },
     {
       "id": "SC-023",
@@ -192,8 +206,15 @@
     },
     {
       "id": "SC-038",
-      "status": "open",
-      "release_blocking": true
+      "status": "closed",
+      "release_blocking": true,
+      "verification_domain": "repository_process",
+      "kani": "not_applicable",
+      "verus": "not_applicable",
+      "evidence": [
+        ".github/workflows/release.yml: double package hashes, binary/package SHA256, CycloneDX SBOM, Sigstore attestation",
+        "tests/repository_policy_regressions.rs: sc038 evidence regression"
+      ]
     },
     {
       "id": "SC-039",
@@ -202,8 +223,15 @@
     },
     {
       "id": "SC-040",
-      "status": "open",
-      "release_blocking": true
+      "status": "closed",
+      "release_blocking": true,
+      "verification_domain": "repository_process",
+      "kani": "not_applicable",
+      "verus": "not_applicable",
+      "evidence": [
+        "verification/tools/check_qualification.py: exact SC-001..SC-040 inventory and fail-closed status check",
+        ".github/workflows/release.yml: qualification job is prerequisite to publish"
+      ]
     }
   ]
 }
