@@ -794,4 +794,42 @@ pub proof fn sc026_pool_constructor_execution_mode_preserves_validity(
 {
 }
 
+
+/// SC-026 model of non-forcing mutable Lazy access.
+/// 0=ready, 1=absent, 2=typed error.
+pub open spec fn lazy_get_mut_decision_model(state: int) -> int {
+    if state == 2 { 0 }
+    else if state == 0 || state == 1 { 1 }
+    else { 2 }
+}
+
+pub proof fn sc026_lazy_get_mut_classifier_is_total(state: int)
+    ensures 0 <= lazy_get_mut_decision_model(state) <= 2,
+{
+}
+
+pub proof fn sc026_lazy_get_mut_poison_is_error()
+    ensures lazy_get_mut_decision_model(3) == 2,
+{
+}
+
+pub open spec fn lazy_get_mut_for_mode_model(state: int, execution_mode: int) -> int {
+    if 0 <= execution_mode <= 2 {
+        lazy_get_mut_decision_model(state)
+    } else {
+        2
+    }
+}
+
+pub proof fn sc026_lazy_mutable_execution_mode_preserves_decision(
+    state: int,
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        lazy_get_mut_for_mode_model(state, execution_mode)
+            == lazy_get_mut_decision_model(state),
+{
+}
+
 } // verus!

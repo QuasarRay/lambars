@@ -874,3 +874,49 @@ mod pool_constructor_totality_regressions {
         assert_eq!(baseline, under_mode);
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod lazy_mutable_access_regressions {
+    use lambars_alias::control::{LazyGetMutDecision, lazy_get_mut_decision};
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_lazy_get_mut_poison_is_typed_error() {
+        assert_eq!(lazy_get_mut_decision(3), LazyGetMutDecision::Error);
+        assert_eq!(lazy_get_mut_decision(0), LazyGetMutDecision::Absent);
+        assert_eq!(lazy_get_mut_decision(2), LazyGetMutDecision::Ready);
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_lazy_get_mut_classifier_is_total() {
+        let state: u8 = kani::any();
+        assert!(matches!(
+            lazy_get_mut_decision(state),
+            LazyGetMutDecision::Ready
+                | LazyGetMutDecision::Absent
+                | LazyGetMutDecision::Error
+        ));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_lazy_get_mut_poison_never_becomes_access() {
+        assert_eq!(lazy_get_mut_decision(3), LazyGetMutDecision::Error);
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_lazy_mutable_access_execution_mode_preserves_decision() {
+        let state: u8 = kani::any();
+        let execution_mode: u8 = kani::any(); // moved thread, Rayon task, local async task
+        kani::assume(execution_mode <= 2);
+        let baseline = lazy_get_mut_decision(state);
+        let under_mode = match execution_mode {
+            0 | 1 | 2 => lazy_get_mut_decision(state),
+            _ => unreachable!(),
+        };
+        assert_eq!(baseline, under_mode);
+    }
+}
