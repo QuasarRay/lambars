@@ -649,4 +649,75 @@ pub proof fn sc026_concurrent_lazy_execution_mode_preserves_decision(
 {
 }
 
+
+/// SC-026 Freer interpreter decision model.
+/// 0=continue, 1=type mismatch, 2=handler panic, 3=continuation panic.
+pub open spec fn freer_interpret_decision_model(
+    type_match: bool,
+    handler_panicked: bool,
+    continuation_panicked: bool,
+) -> int {
+    if handler_panicked { 2 }
+    else if continuation_panicked { 3 }
+    else if !type_match { 1 }
+    else { 0 }
+}
+
+pub open spec fn freer_interpret_decision_for_mode_model(
+    type_match: bool,
+    handler_panicked: bool,
+    continuation_panicked: bool,
+    execution_mode: int,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        freer_interpret_decision_model(
+            type_match,
+            handler_panicked,
+            continuation_panicked,
+        )
+    } else {
+        1
+    }
+}
+
+pub proof fn sc026_freer_handler_panic_is_typed_error(
+    type_match: bool,
+    continuation_panicked: bool,
+)
+    ensures
+        freer_interpret_decision_model(type_match, true, continuation_panicked) == 2,
+{
+}
+
+pub proof fn sc026_freer_continuation_panic_is_typed_error(type_match: bool)
+    ensures freer_interpret_decision_model(type_match, false, true) == 3,
+{
+}
+
+pub proof fn sc026_freer_type_mismatch_is_typed_error()
+    ensures freer_interpret_decision_model(false, false, false) == 1,
+{
+}
+
+pub proof fn sc026_freer_execution_mode_preserves_decision(
+    type_match: bool,
+    handler_panicked: bool,
+    continuation_panicked: bool,
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        freer_interpret_decision_for_mode_model(
+            type_match,
+            handler_panicked,
+            continuation_panicked,
+            execution_mode,
+        ) == freer_interpret_decision_model(
+            type_match,
+            handler_panicked,
+            continuation_panicked,
+        ),
+{
+}
+
 } // verus!

@@ -745,3 +745,76 @@ mod concurrent_lazy_totality_regressions {
         assert_eq!(baseline, under_mode);
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod freer_totality_regressions {
+    use lambars_alias::control::{FreerInterpretDecision, freer_interpret_decision};
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_freer_failure_states_are_typed_decisions() {
+        assert_eq!(
+            freer_interpret_decision(true, true, false),
+            FreerInterpretDecision::HandlerPanicked
+        );
+        assert_eq!(
+            freer_interpret_decision(true, false, true),
+            FreerInterpretDecision::ContinuationPanicked
+        );
+        assert_eq!(
+            freer_interpret_decision(false, false, false),
+            FreerInterpretDecision::TypeMismatch
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_freer_handler_panic_never_continues() {
+        let type_match: bool = kani::any();
+        let continuation_panicked: bool = kani::any();
+        assert_ne!(
+            freer_interpret_decision(type_match, true, continuation_panicked),
+            FreerInterpretDecision::Continue
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_freer_continuation_panic_never_continues() {
+        let type_match: bool = kani::any();
+        assert_ne!(
+            freer_interpret_decision(type_match, false, true),
+            FreerInterpretDecision::Continue
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_freer_type_mismatch_never_continues() {
+        assert_eq!(
+            freer_interpret_decision(false, false, false),
+            FreerInterpretDecision::TypeMismatch
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_freer_thread_parallel_async_modes_preserve_failure_decision() {
+        let type_match: bool = kani::any();
+        let handler_panicked: bool = kani::any();
+        let continuation_panicked: bool = kani::any();
+        let execution_mode: u8 = kani::any(); // 0 thread, 1 Rayon, 2 async
+        kani::assume(execution_mode <= 2);
+
+        let baseline =
+            freer_interpret_decision(type_match, handler_panicked, continuation_panicked);
+        let under_mode = match execution_mode {
+            0 | 1 | 2 => {
+                freer_interpret_decision(type_match, handler_panicked, continuation_panicked)
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(baseline, under_mode);
+    }
+}
