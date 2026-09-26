@@ -1,0 +1,33 @@
+[package]
+name = "lambars-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+lambars = { path = "..", default-features = false, features = ["control", "persistent"] }
+
+[[bin]]
+name = "persistent_collections"
+path = "fuzz_targets/persistent_collections.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lazy_totality"
+path = "fuzz_targets/lazy_totality.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "freer_totality"
+path = "fuzz_targets/freer_totality.rs"
+test = false
+doc = false
+bench = false
