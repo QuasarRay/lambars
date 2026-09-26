@@ -22,14 +22,14 @@ fn force_is_idempotent() {
         42
     });
 
-    let v1 = lazy.force();
+    let v1 = lazy.force().unwrap();
     assert_eq!(
         call_count.get(),
         1,
         "initializer should be called exactly once"
     );
 
-    let v2 = lazy.force();
+    let v2 = lazy.force().unwrap();
     assert_eq!(
         call_count.get(),
         1,
@@ -61,7 +61,7 @@ fn lazy_force_computes_value() {
 
     assert!(!computed.get());
 
-    let value = lazy.force();
+    let value = lazy.force().unwrap();
     assert!(computed.get());
     assert_eq!(*value, 42);
 }
@@ -69,7 +69,7 @@ fn lazy_force_computes_value() {
 #[rstest]
 fn lazy_force_returns_ref() {
     let lazy = Lazy::new(|| "hello".to_string());
-    let value = lazy.force();
+    let value = lazy.force().unwrap();
 
     // We can call methods on the Ref
     assert_eq!(value.len(), 5);
@@ -87,15 +87,15 @@ fn lazy_memoization_single_computation() {
     assert_eq!(call_count.get(), 0);
 
     // First force
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     assert_eq!(call_count.get(), 1);
 
     // Second force - should NOT call again
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     assert_eq!(call_count.get(), 1);
 
     // Third force - still only 1
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     assert_eq!(call_count.get(), 1);
 }
 
@@ -103,8 +103,8 @@ fn lazy_memoization_single_computation() {
 fn lazy_memoization_preserves_value() {
     let lazy = Lazy::new(|| "computed_value".to_string());
 
-    let first = lazy.force();
-    let second = lazy.force();
+    let first = lazy.force().unwrap();
+    let second = lazy.force().unwrap();
 
     assert_eq!(*first, "computed_value");
     assert_eq!(*second, "computed_value");
@@ -119,14 +119,14 @@ fn lazy_new_with_value_is_initialized() {
 #[rstest]
 fn lazy_new_with_value_force_returns_value() {
     let lazy = Lazy::new_with_value(42);
-    assert_eq!(*lazy.force(), 42);
+    assert_eq!(*lazy.force().unwrap(), 42);
 }
 
 #[rstest]
 fn lazy_pure_is_alias_for_new_with_value() {
     let lazy = Lazy::pure("hello");
     assert!(lazy.is_initialized());
-    assert_eq!(*lazy.force(), "hello");
+    assert_eq!(*lazy.force().unwrap(), "hello");
 }
 
 #[rstest]
@@ -138,7 +138,7 @@ fn lazy_get_before_force_returns_none() {
 #[rstest]
 fn lazy_get_after_force_returns_some() {
     let lazy = Lazy::new(|| 42);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     assert!(lazy.get().is_some());
     assert_eq!(*lazy.get().unwrap(), 42);
 }
@@ -159,7 +159,7 @@ fn lazy_is_initialized_false_initially() {
 #[rstest]
 fn lazy_is_initialized_true_after_force() {
     let lazy = Lazy::new(|| 42);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     assert!(lazy.is_initialized());
 }
 
@@ -173,28 +173,15 @@ fn lazy_is_initialized_true_for_new_with_value() {
 fn lazy_poisoned_after_panic() {
     let lazy = Lazy::new(|| panic!("initialization failed"));
 
-    // Try to force, which should panic
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = lazy.force();
-    }));
-    assert!(result.is_err());
-
-    // Now the lazy should be poisoned
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
     assert!(lazy.is_poisoned());
 }
 
 #[rstest]
-#[should_panic(expected = "Lazy instance has been poisoned")]
-fn lazy_force_on_poisoned_panics() {
+fn lazy_force_on_poisoned_returns_error() {
     let lazy = Lazy::new(|| panic!("initialization failed"));
-
-    // First force - causes panic and poisons
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _ = lazy.force();
-    }));
-
-    // Second force - should panic with "poisoned" message
-    let _ = lazy.force();
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
 }
 
 #[rstest]
@@ -206,7 +193,7 @@ fn lazy_is_poisoned_false_initially() {
 #[rstest]
 fn lazy_is_poisoned_false_after_successful_init() {
     let lazy = Lazy::new(|| 42);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     assert!(!lazy.is_poisoned());
 }
 
@@ -218,7 +205,7 @@ fn lazy_is_poisoned_false_after_successful_init() {
 fn lazy_map_transforms_value() {
     let lazy = Lazy::new(|| 21);
     let doubled = lazy.map(|x| x * 2);
-    assert_eq!(*doubled.force(), 42);
+    assert_eq!(*doubled.force().unwrap(), 42);
 }
 
 #[rstest]
@@ -234,7 +221,7 @@ fn lazy_map_is_lazy() {
     assert!(!computed.get());
 
     // Force the mapped value
-    let _ = mapped.force();
+    let _ = mapped.force().unwrap();
     assert!(computed.get());
 }
 
@@ -244,14 +231,14 @@ fn lazy_map_chain() {
     let result = lazy.map(|x| x + 1).map(|x| x * 2).map(|x| x - 2);
 
     // (10 + 1) * 2 - 2 = 20
-    assert_eq!(*result.force(), 20);
+    assert_eq!(*result.force().unwrap(), 20);
 }
 
 #[rstest]
 fn lazy_map_type_change() {
     let lazy = Lazy::new(|| 42);
     let stringified = lazy.map(|x| x.to_string());
-    assert_eq!(*stringified.force(), "42");
+    assert_eq!(*stringified.force().unwrap(), "42");
 }
 
 // =============================================================================
@@ -262,7 +249,7 @@ fn lazy_map_type_change() {
 fn lazy_flat_map_basic() {
     let lazy = Lazy::new(|| 21);
     let result = lazy.flat_map(|x| Lazy::new(move || x * 2));
-    assert_eq!(*result.force(), 42);
+    assert_eq!(*result.force().unwrap(), 42);
 }
 
 #[rstest]
@@ -292,7 +279,7 @@ fn lazy_flat_map_is_lazy() {
     assert!(!inner_computed.get());
 
     // Force the result
-    let _ = result.force();
+    let _ = result.force().unwrap();
     assert!(outer_computed.get());
     assert!(inner_computed.get());
 }
@@ -305,14 +292,14 @@ fn lazy_flat_map_chain() {
         .flat_map(|x| Lazy::new(move || x * 2));
 
     // (10 + 1) * 2 = 22
-    assert_eq!(*result.force(), 22);
+    assert_eq!(*result.force().unwrap(), 22);
 }
 
 #[rstest]
 fn lazy_flat_map_with_already_initialized() {
     let lazy = Lazy::new(|| 21);
     let result = lazy.flat_map(|x| Lazy::new_with_value(x * 2));
-    assert_eq!(*result.force(), 42);
+    assert_eq!(*result.force().unwrap(), 42);
 }
 
 // =============================================================================
@@ -325,7 +312,7 @@ fn lazy_zip_combines_values() {
     let lazy2 = Lazy::new(|| "hello");
     let combined = lazy1.zip(lazy2);
 
-    assert_eq!(*combined.force(), (1, "hello"));
+    assert_eq!(*combined.force().unwrap(), (1, "hello"));
 }
 
 #[rstest]
@@ -349,7 +336,7 @@ fn lazy_zip_is_lazy() {
     assert!(!computed2.get());
 
     // Force
-    let _ = combined.force();
+    let _ = combined.force().unwrap();
     assert!(computed1.get());
     assert!(computed2.get());
 }
@@ -364,7 +351,7 @@ fn lazy_zip_with_combines_with_function() {
     let lazy2 = Lazy::new(|| 22);
     let sum = lazy1.zip_with(lazy2, |a, b| a + b);
 
-    assert_eq!(*sum.force(), 42);
+    assert_eq!(*sum.force().unwrap(), 42);
 }
 
 #[rstest]
@@ -386,7 +373,7 @@ fn lazy_zip_with_is_lazy() {
     assert!(!computed1.get());
     assert!(!computed2.get());
 
-    let _ = combined.force();
+    let _ = combined.force().unwrap();
     assert!(computed1.get());
     assert!(computed2.get());
 }
@@ -397,7 +384,7 @@ fn lazy_zip_with_type_change() {
     let lazy2 = Lazy::new(|| "answer");
     let combined = lazy1.zip_with(lazy2, |n, s| format!("{} is {}", s, n));
 
-    assert_eq!(*combined.force(), "answer is 42");
+    assert_eq!(*combined.force().unwrap(), "answer is 42");
 }
 
 // =============================================================================
@@ -407,13 +394,13 @@ fn lazy_zip_with_type_change() {
 #[rstest]
 fn lazy_default_for_i32() {
     let lazy: Lazy<i32> = Lazy::default();
-    assert_eq!(*lazy.force(), 0);
+    assert_eq!(*lazy.force().unwrap(), 0);
 }
 
 #[rstest]
 fn lazy_default_for_string() {
     let lazy: Lazy<String> = Lazy::default();
-    assert_eq!(*lazy.force(), "");
+    assert_eq!(*lazy.force().unwrap(), "");
 }
 
 #[rstest]
@@ -436,7 +423,7 @@ fn lazy_debug_uninit() {
 #[rstest]
 fn lazy_debug_init() {
     let lazy = Lazy::new(|| 42);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     let debug_str = format!("{:?}", lazy);
     assert!(debug_str.contains("42"));
 }
@@ -444,9 +431,7 @@ fn lazy_debug_init() {
 #[rstest]
 fn lazy_debug_poisoned() {
     let lazy = Lazy::new(|| panic!("test"));
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _ = lazy.force();
-    }));
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
 
     let debug_str = format!("{:?}", lazy);
     assert!(debug_str.contains("poisoned"));
@@ -463,7 +448,7 @@ fn lazy_fibonacci_memoization() {
     let fib_1 = Lazy::new_with_value(1u64);
 
     let fib_2 = fib_0.zip_with(fib_1, |a, b| a + b);
-    assert_eq!(*fib_2.force(), 1);
+    assert_eq!(*fib_2.force().unwrap(), 1);
 }
 
 #[rstest]
@@ -478,7 +463,7 @@ fn lazy_complex_composition() {
         .flat_map(|sum| Lazy::new(move || sum).zip(lazy3).map(|(s, c)| s + c));
 
     // 10 + 20 + 30 = 60
-    assert_eq!(*result.force(), 60);
+    assert_eq!(*result.force().unwrap(), 60);
 }
 
 // =============================================================================
@@ -488,15 +473,15 @@ fn lazy_complex_composition() {
 #[rstest]
 fn lazy_force_mut_computes_and_returns_mutable_ref() {
     let mut lazy = Lazy::new(|| vec![1, 2, 3]);
-    lazy.force_mut().push(4);
-    assert_eq!(lazy.force().as_slice(), &[1, 2, 3, 4]);
+    lazy.force_mut().unwrap().push(4);
+    assert_eq!(lazy.force().unwrap().as_slice(), &[1, 2, 3, 4]);
 }
 
 #[rstest]
 fn lazy_force_mut_on_initialized_returns_mutable_ref() {
     let mut lazy = Lazy::new_with_value(vec![1, 2, 3]);
-    lazy.force_mut().push(4);
-    assert_eq!(lazy.force().as_slice(), &[1, 2, 3, 4]);
+    lazy.force_mut().unwrap().push(4);
+    assert_eq!(lazy.force().unwrap().as_slice(), &[1, 2, 3, 4]);
 }
 
 #[rstest]
@@ -509,7 +494,7 @@ fn lazy_force_mut_initializes_if_needed() {
 
     assert!(!computed.get());
 
-    let value = lazy.force_mut();
+    let value = lazy.force_mut().unwrap();
     assert!(computed.get());
     assert_eq!(*value, 42);
 }
@@ -517,22 +502,15 @@ fn lazy_force_mut_initializes_if_needed() {
 #[rstest]
 fn lazy_force_mut_modifies_value() {
     let mut lazy = Lazy::new(|| 10);
-    *lazy.force_mut() = 42;
-    assert_eq!(*lazy.force(), 42);
+    *lazy.force_mut().unwrap() = 42;
+    assert_eq!(*lazy.force().unwrap(), 42);
 }
 
 #[rstest]
-#[should_panic(expected = "Lazy instance has been poisoned")]
-fn lazy_force_mut_on_poisoned_panics() {
+fn lazy_force_mut_on_poisoned_returns_error() {
     let mut lazy = Lazy::new(|| panic!("initialization failed"));
-
-    // First force - causes panic and poisons
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _ = lazy.force();
-    }));
-
-    // force_mut should panic with "poisoned" message
-    let _ = lazy.force_mut();
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
+    assert_eq!(lazy.force_mut(), Err(LazyPoisonedError));
 }
 
 // =============================================================================
@@ -542,62 +520,55 @@ fn lazy_force_mut_on_poisoned_panics() {
 #[rstest]
 fn lazy_get_mut_before_force_returns_none() {
     let mut lazy = Lazy::new(|| 42);
-    assert!(lazy.get_mut().is_none());
+    assert!(lazy.get_mut().unwrap().is_none());
 }
 
 #[rstest]
 fn lazy_get_mut_after_force_returns_some() {
     let mut lazy = Lazy::new(|| 42);
-    let _ = lazy.force();
-    assert!(lazy.get_mut().is_some());
+    let _ = lazy.force().unwrap();
+    assert!(lazy.get_mut().unwrap().is_some());
 }
 
 #[rstest]
 fn lazy_get_mut_returns_mutable_ref() {
     let mut lazy = Lazy::new(|| 10);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
 
-    if let Some(value) = lazy.get_mut() {
+    if let Some(value) = lazy.get_mut().unwrap() {
         *value = 42;
     }
-    assert_eq!(*lazy.force(), 42);
+    assert_eq!(*lazy.force().unwrap(), 42);
 }
 
 #[rstest]
 fn lazy_get_mut_on_new_with_value_returns_some() {
     let mut lazy = Lazy::new_with_value(42);
-    assert!(lazy.get_mut().is_some());
+    assert!(lazy.get_mut().unwrap().is_some());
 
-    if let Some(value) = lazy.get_mut() {
+    if let Some(value) = lazy.get_mut().unwrap() {
         *value = 100;
     }
-    assert_eq!(*lazy.force(), 100);
+    assert_eq!(*lazy.force().unwrap(), 100);
 }
 
 #[rstest]
 fn lazy_get_mut_with_vec() {
     let mut lazy = Lazy::new(|| vec![1, 2, 3]);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
 
-    if let Some(vec) = lazy.get_mut() {
+    if let Some(vec) = lazy.get_mut().unwrap() {
         vec.push(4);
         vec.push(5);
     }
-    assert_eq!(lazy.force().as_slice(), &[1, 2, 3, 4, 5]);
+    assert_eq!(lazy.force().unwrap().as_slice(), &[1, 2, 3, 4, 5]);
 }
 
 #[rstest]
-#[should_panic(expected = "Lazy instance has been poisoned")]
-fn lazy_get_mut_on_poisoned_panics() {
+fn lazy_get_mut_on_poisoned_returns_error() {
     let mut lazy = Lazy::new(|| panic!("initialization failed"));
-
-    // First force - causes panic and poisons
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _ = lazy.force();
-    }));
-
-    // get_mut should panic with "poisoned" message
-    let _ = lazy.get_mut();
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
+    assert_eq!(lazy.get_mut(), Err(LazyPoisonedError));
 }
 
 // =============================================================================
@@ -613,7 +584,7 @@ fn lazy_into_inner_uninit_forces_and_returns_ok() {
 #[rstest]
 fn lazy_into_inner_init_returns_ok() {
     let lazy = Lazy::new(|| 42);
-    let _ = lazy.force();
+    let _ = lazy.force().unwrap();
     // Cannot call into_inner after force because force borrows
     // Test with new_with_value instead
     let lazy2 = Lazy::new_with_value(100);
@@ -636,10 +607,7 @@ fn lazy_into_inner_pure_returns_ok() {
 fn lazy_into_inner_poisoned_returns_err() {
     let lazy = Lazy::new(|| panic!("initialization failed"));
 
-    // First force - causes panic and poisons
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _ = lazy.force();
-    }));
+    assert_eq!(lazy.force(), Err(LazyPoisonedError));
 
     // into_inner should return Err(LazyPoisonedError) for poisoned
     assert_eq!(lazy.into_inner(), Err(LazyPoisonedError));

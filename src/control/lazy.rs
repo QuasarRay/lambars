@@ -101,6 +101,28 @@ pub const fn lazy_force_decision(state: u8) -> LazyForceDecision {
     }
 }
 
+/// Pure state decision for non-forcing mutable access.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LazyGetMutDecision {
+    Ready = 0,
+    Absent = 1,
+    Error = 2,
+}
+
+/// Classifies `get_mut` state without panicking.
+#[doc(hidden)]
+#[must_use]
+pub const fn lazy_get_mut_decision(state: u8) -> LazyGetMutDecision {
+    match state {
+        STATE_READY => LazyGetMutDecision::Ready,
+        STATE_EMPTY | STATE_COMPUTING => LazyGetMutDecision::Absent,
+        STATE_POISONED => LazyGetMutDecision::Error,
+        _ => LazyGetMutDecision::Error,
+    }
+}
+
 /// A lazily evaluated value with memoization.
 ///
 /// `Lazy<T, F>` defers computation until the value is first accessed via `force()`.
@@ -149,10 +171,10 @@ pub const fn lazy_force_decision(state: u8) -> LazyForceDecision {
 ///
 /// assert_eq!(call_count.get(), 0); // Not called yet
 ///
-/// let _ = lazy.force();
+/// let _ = lazy.force().unwrap();
 /// assert_eq!(call_count.get(), 1); // Called once
 ///
-/// let _ = lazy.force();
+/// let _ = lazy.force().unwrap();
 /// assert_eq!(call_count.get(), 1); // Still only once - memoized
 /// ```
 pub struct Lazy<T, F = fn() -> T> {
@@ -198,21 +220,15 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
         }
     }
 
-    /// Forces evaluation of the lazy value and returns a reference to it.
+    /// Forces evaluation of the lazy value and returns a typed result.
     ///
-    /// If the value has not been computed yet, the initialization function
-    /// is called and the result is cached. Subsequent calls return the
-    /// cached value.
+    /// Initialization panics, poisoned state, and recursive initialization are
+    /// represented by `LazyPoisonedError`.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// A reference to the computed value.
-    ///
-    /// # Panics
-    ///
-    /// - If the initialization function panics, the lazy value becomes
-    ///   poisoned and all future calls to `force()` will panic.
-    /// - If the value is already poisoned from a previous panic.
+    /// Returns `LazyPoisonedError` if initialization fails, the value is
+    /// poisoned, or the same Lazy is re-entered during initialization.
     ///
     /// # Examples
     ///
@@ -220,85 +236,31 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// use lambars::control::Lazy;
     ///
     /// let lazy = Lazy::new(|| 42);
-    /// let value = lazy.force();
+    /// let value = lazy.force().unwrap();
     /// assert_eq!(*value, 42);
     /// ```
-    pub fn force(&self) -> &T {
-        let state = self.state.load(Ordering::Acquire);
-
-        match state {
-            STATE_READY => {
-                // SAFETY: Transition to STATE_READY is done in initialize() after value.write()
-                // completes with Release ordering. The Acquire load here establishes
-                // happens-before relationship, guaranteeing that write is visible.
-                // Therefore value is initialized and assume_init_ref() is safe.
-                unsafe { (*self.value.get()).assume_init_ref() }
-            }
-            STATE_POISONED => {
-                panic!("Lazy instance has been poisoned")
-            }
-            STATE_EMPTY => self.initialize(),
-            STATE_COMPUTING => {
-                panic!("Lazy::force called recursively during initialization")
-            }
-            _ => unreachable!("Invalid state"),
-        }
+    #[inline]
+    pub fn force(&self) -> Result<&T, LazyPoisonedError> {
+        self.try_force()
     }
 
-    /// Forces evaluation and returns a mutable reference to the value.
+    /// Forces evaluation and returns a mutable reference through a typed result.
     ///
-    /// If the value has not been computed yet, the initialization function
-    /// is called and the result is cached. Subsequent calls return the
-    /// cached value.
+    /// # Errors
     ///
-    /// # Returns
-    ///
-    /// A mutable reference to the computed value.
-    ///
-    /// # Panics
-    ///
-    /// - If the initialization function panics, the lazy value becomes
-    ///   poisoned and all future calls will panic.
-    /// - If the value is already poisoned from a previous panic.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use lambars::control::Lazy;
-    ///
-    /// let mut lazy = Lazy::new(|| vec![1, 2, 3]);
-    /// lazy.force_mut().push(4);
-    /// assert_eq!(lazy.force().as_slice(), &[1, 2, 3, 4]);
-    /// ```
-    pub fn force_mut(&mut self) -> &mut T {
+    /// Returns `LazyPoisonedError` if initialization fails, the value is
+    /// poisoned, or initialization state is inconsistent.
+    pub fn force_mut(&mut self) -> Result<&mut T, LazyPoisonedError> {
         let state = *self.state.get_mut();
 
-        match state {
-            STATE_READY => {
-                // SAFETY: We have &mut self, so exclusive access is guaranteed.
-                // State is STATE_READY, so value is initialized.
-                unsafe { (*self.value.get()).assume_init_mut() }
+        match lazy_force_decision(state) {
+            LazyForceDecision::Ready => {
+                // SAFETY: We have exclusive access and READY means initialized.
+                Ok(unsafe { (*self.value.get()).assume_init_mut() })
             }
-            STATE_POISONED => {
-                panic!("Lazy instance has been poisoned")
-            }
-            STATE_EMPTY => {
-                // We have &mut self, so we can safely initialize
-                self.initialize_mut()
-            }
-            STATE_COMPUTING => {
-                // With &mut self, STATE_COMPUTING should not be observable
-                // as it would require concurrent access which is prevented by borrowing rules
-                panic!("Lazy::force_mut called recursively during initialization")
-            }
-            _ => unreachable!("Invalid state"),
+            LazyForceDecision::Initialize => self.initialize_mut_result(),
+            LazyForceDecision::Error => Err(LazyPoisonedError),
         }
-    }
-
-    /// Performs initialization for the explicitly partial `force()` wrapper.
-    fn initialize(&self) -> &T {
-        self.initialize_result()
-            .unwrap_or_else(|_| panic!("Lazy: initialization failed or re-entered"))
     }
 
     /// Performs initialization without unwinding.
@@ -344,36 +306,29 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
         }
     }
 
-    /// Performs the initialization (mutable self version).
-    fn initialize_mut(&mut self) -> &mut T {
-        // We have &mut self, so no need for atomic operations
+    /// Performs mutable initialization without unwinding.
+    fn initialize_mut_result(&mut self) -> Result<&mut T, LazyPoisonedError> {
         *self.state.get_mut() = STATE_COMPUTING;
 
-        // SAFETY: We have &mut self, so exclusive access is guaranteed.
-        let initializer =
-            unsafe { (*self.initializer.get()).take() }.expect("initializer already consumed");
+        // SAFETY: &mut self guarantees exclusive initializer ownership.
+        let Some(initializer) = (unsafe { (*self.initializer.get()).take() }) else {
+            *self.state.get_mut() = STATE_POISONED;
+            return Err(LazyPoisonedError);
+        };
 
-        // Catch panic
-        let result = catch_unwind(AssertUnwindSafe(initializer));
-
-        // Note: Using match for clarity - the Err case panics so clippy's
-        // suggestion to use if let or map_or_else is not appropriate
-        #[allow(clippy::single_match_else, clippy::option_if_let_else)]
-        match result {
+        match catch_unwind(AssertUnwindSafe(initializer)) {
             Ok(value) => {
-                // SAFETY: We have &mut self, exclusive access guaranteed.
+                // SAFETY: exclusive access guarantees the value slot is uniquely writable.
                 unsafe {
                     (*self.value.get()).write(value);
                 }
-
                 *self.state.get_mut() = STATE_READY;
-
-                // SAFETY: Just initialized with write().
-                unsafe { (*self.value.get()).assume_init_mut() }
+                // SAFETY: value was just initialized.
+                Ok(unsafe { (*self.value.get()).assume_init_mut() })
             }
             Err(_) => {
                 *self.state.get_mut() = STATE_POISONED;
-                panic!("Lazy: initialization function panicked");
+                Err(LazyPoisonedError)
             }
         }
     }
@@ -417,7 +372,7 @@ impl<T> Lazy<T, fn() -> T> {
     /// use lambars::control::Lazy;
     ///
     /// let lazy = Lazy::pure(42);
-    /// assert_eq!(*lazy.force(), 42);
+    /// assert_eq!(*lazy.force().unwrap(), 42);
     /// ```
     #[inline]
     pub fn pure(value: T) -> Self {
@@ -444,7 +399,7 @@ impl<T, F> Lazy<T, F> {
     ///
     /// assert!(lazy.get().is_none()); // Not initialized yet
     ///
-    /// let _ = lazy.force();
+    /// let _ = lazy.force().unwrap();
     /// assert!(lazy.get().is_some()); // Now initialized
     /// ```
     pub fn get(&self) -> Option<&T> {
@@ -457,18 +412,11 @@ impl<T, F> Lazy<T, F> {
         }
     }
 
-    /// Returns a mutable reference to the value if it has been initialized.
+    /// Returns a mutable reference if initialized without forcing evaluation.
     ///
-    /// Unlike `force_mut()`, this method does not trigger initialization.
+    /// # Errors
     ///
-    /// # Returns
-    ///
-    /// - `Some(&mut T)` if the value is initialized
-    /// - `None` if the value has not been initialized yet
-    ///
-    /// # Panics
-    ///
-    /// Panics if the Lazy is in a poisoned state.
+    /// Returns `LazyPoisonedError` when the Lazy is poisoned.
     ///
     /// # Examples
     ///
@@ -476,21 +424,19 @@ impl<T, F> Lazy<T, F> {
     /// use lambars::control::Lazy;
     ///
     /// let mut lazy = Lazy::new(|| 42);
-    /// assert!(lazy.get_mut().is_none());
-    /// lazy.force();
-    /// assert!(lazy.get_mut().is_some());
-    /// assert_eq!(*lazy.get_mut().unwrap(), 42);
+    /// assert!(lazy.get_mut().unwrap().is_none());
+    /// lazy.force().unwrap();
+    /// assert_eq!(*lazy.get_mut().unwrap().unwrap(), 42);
     /// ```
-    pub fn get_mut(&mut self) -> Option<&mut T> {
+    pub fn get_mut(&mut self) -> Result<Option<&mut T>, LazyPoisonedError> {
         let state = *self.state.get_mut();
-        match state {
-            STATE_READY => {
-                // SAFETY: We have &mut self, exclusive access guaranteed.
-                // State is STATE_READY, so value is initialized.
-                Some(unsafe { (*self.value.get()).assume_init_mut() })
+        match lazy_get_mut_decision(state) {
+            LazyGetMutDecision::Ready => {
+                // SAFETY: &mut self is exclusive and READY means initialized.
+                Ok(Some(unsafe { (*self.value.get()).assume_init_mut() }))
             }
-            STATE_POISONED => panic!("Lazy instance has been poisoned"),
-            _ => None,
+            LazyGetMutDecision::Absent => Ok(None),
+            LazyGetMutDecision::Error => Err(LazyPoisonedError),
         }
     }
 
@@ -504,7 +450,7 @@ impl<T, F> Lazy<T, F> {
     /// let lazy = Lazy::new(|| 42);
     /// assert!(!lazy.is_initialized());
     ///
-    /// let _ = lazy.force();
+    /// let _ = lazy.force().unwrap();
     /// assert!(lazy.is_initialized());
     /// ```
     #[inline]
@@ -676,7 +622,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// let lazy = Lazy::new(|| 21);
     /// let doubled = lazy.map(|x| x * 2);
     ///
-    /// assert_eq!(*doubled.force(), 42);
+    /// assert_eq!(*doubled.force().unwrap(), 42);
     /// ```
     ///
     /// # Panics
@@ -739,7 +685,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// let lazy = Lazy::new(|| 21);
     /// let result = lazy.flat_map(|x| Lazy::new(move || x * 2));
     ///
-    /// assert_eq!(*result.force(), 42);
+    /// assert_eq!(*result.force().unwrap(), 42);
     /// ```
     ///
     /// # Panics
@@ -773,7 +719,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// let lazy2 = Lazy::new(|| "hello");
     /// let combined = lazy1.zip(lazy2);
     ///
-    /// assert_eq!(*combined.force(), (1, "hello"));
+    /// assert_eq!(*combined.force().unwrap(), (1, "hello"));
     /// ```
     ///
     /// # Panics
@@ -809,7 +755,7 @@ impl<T, F: FnOnce() -> T> Lazy<T, F> {
     /// let lazy2 = Lazy::new(|| 22);
     /// let sum = lazy1.zip_with(lazy2, |a, b| a + b);
     ///
-    /// assert_eq!(*sum.force(), 42);
+    /// assert_eq!(*sum.force().unwrap(), 42);
     /// ```
     ///
     /// # Panics
@@ -841,7 +787,7 @@ impl<T: Default> Default for Lazy<T> {
     /// use lambars::control::Lazy;
     ///
     /// let lazy: Lazy<i32> = Lazy::default();
-    /// assert_eq!(*lazy.force(), 0);
+    /// assert_eq!(*lazy.force().unwrap(), 0);
     /// ```
     fn default() -> Self {
         Self::new(T::default)
@@ -916,7 +862,7 @@ mod tests {
     #[rstest]
     fn test_display_evaluated_lazy() {
         let lazy = Lazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(format!("{lazy}"), "42");
     }
 
@@ -955,10 +901,10 @@ mod tests {
 
         assert_eq!(call_count.get(), 0);
 
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(call_count.get(), 1);
 
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(call_count.get(), 1); // Still 1, not 2
     }
 
@@ -966,21 +912,21 @@ mod tests {
     fn test_lazy_new_with_value() {
         let lazy = Lazy::new_with_value(42);
         assert!(lazy.is_initialized());
-        assert_eq!(*lazy.force(), 42);
+        assert_eq!(*lazy.force().unwrap(), 42);
     }
 
     #[rstest]
     fn test_lazy_map() {
         let lazy = Lazy::new(|| 21);
         let doubled = lazy.map(|x| x * 2);
-        assert_eq!(*doubled.force(), 42);
+        assert_eq!(*doubled.force().unwrap(), 42);
     }
 
     #[rstest]
     fn test_lazy_flat_map() {
         let lazy = Lazy::new(|| 21);
         let result = lazy.flat_map(|x| Lazy::new(move || x * 2));
-        assert_eq!(*result.force(), 42);
+        assert_eq!(*result.force().unwrap(), 42);
     }
 
     #[rstest]
@@ -992,29 +938,29 @@ mod tests {
     #[rstest]
     fn test_lazy_get_after_init() {
         let lazy = Lazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(*lazy.get().unwrap(), 42);
     }
 
     #[rstest]
     fn test_lazy_get_mut_before_init() {
         let mut lazy = Lazy::new(|| 42);
-        assert!(lazy.get_mut().is_none());
+        assert!(lazy.get_mut().unwrap().is_none());
     }
 
     #[rstest]
     fn test_lazy_get_mut_after_init() {
         let mut lazy = Lazy::new(|| 42);
-        let _ = lazy.force();
-        *lazy.get_mut().unwrap() = 100;
-        assert_eq!(*lazy.force(), 100);
+        let _ = lazy.force().unwrap();
+        *lazy.get_mut().unwrap().unwrap() = 100;
+        assert_eq!(*lazy.force().unwrap(), 100);
     }
 
     #[rstest]
     fn test_lazy_force_mut() {
         let mut lazy = Lazy::new(|| vec![1, 2, 3]);
-        lazy.force_mut().push(4);
-        assert_eq!(lazy.force().as_slice(), &[1, 2, 3, 4]);
+        lazy.force_mut().unwrap().push(4);
+        assert_eq!(lazy.force().unwrap().as_slice(), &[1, 2, 3, 4]);
     }
 
     #[rstest]
@@ -1026,14 +972,14 @@ mod tests {
     #[rstest]
     fn test_lazy_into_inner_init() {
         let lazy = Lazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(lazy.into_inner(), Ok(42));
     }
 
     #[rstest]
     fn test_lazy_into_inner_poisoned() {
         let lazy = Lazy::new(|| -> i32 { panic!("initialization failed") });
-        let _ = panic::catch_unwind(panic::AssertUnwindSafe(|| lazy.force()));
+        assert_eq!(lazy.force(), Err(LazyPoisonedError));
         assert_eq!(lazy.into_inner(), Err(LazyPoisonedError));
     }
 
@@ -1042,7 +988,7 @@ mod tests {
         let lazy1 = Lazy::new(|| 1);
         let lazy2 = Lazy::new(|| "hello");
         let combined = lazy1.zip(lazy2);
-        assert_eq!(*combined.force(), (1, "hello"));
+        assert_eq!(*combined.force().unwrap(), (1, "hello"));
     }
 
     #[rstest]
@@ -1050,34 +996,28 @@ mod tests {
         let lazy1 = Lazy::new(|| 20);
         let lazy2 = Lazy::new(|| 22);
         let sum = lazy1.zip_with(lazy2, |a, b| a + b);
-        assert_eq!(*sum.force(), 42);
+        assert_eq!(*sum.force().unwrap(), 42);
     }
 
     #[rstest]
     fn test_lazy_pure() {
         let lazy = Lazy::pure(42);
         assert!(lazy.is_initialized());
-        assert_eq!(*lazy.force(), 42);
+        assert_eq!(*lazy.force().unwrap(), 42);
     }
 
     #[rstest]
     fn test_lazy_default() {
         let lazy: Lazy<i32> = Lazy::default();
-        assert_eq!(*lazy.force(), 0);
+        assert_eq!(*lazy.force().unwrap(), 0);
     }
 
     #[rstest]
     fn test_lazy_poison_propagation() {
         let lazy = Lazy::new(|| -> i32 { panic!("test panic") });
 
-        // First force panics
-        let result1 = panic::catch_unwind(panic::AssertUnwindSafe(|| lazy.force()));
-        assert!(result1.is_err());
-
-        // Second force also panics (poisoned)
-        let result2 = panic::catch_unwind(panic::AssertUnwindSafe(|| lazy.force()));
-        assert!(result2.is_err());
-
+        assert_eq!(lazy.force(), Err(LazyPoisonedError));
+        assert_eq!(lazy.force(), Err(LazyPoisonedError));
         assert!(lazy.is_poisoned());
     }
 
@@ -1090,14 +1030,14 @@ mod tests {
     #[rstest]
     fn test_lazy_debug_init() {
         let lazy = Lazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(format!("{lazy:?}"), "42");
     }
 
     #[rstest]
     fn test_lazy_debug_poisoned() {
         let lazy = Lazy::new(|| -> i32 { panic!("initialization failed") });
-        let _ = panic::catch_unwind(panic::AssertUnwindSafe(|| lazy.force()));
+        assert_eq!(lazy.force(), Err(LazyPoisonedError));
         assert_eq!(format!("{lazy:?}"), "<poisoned>");
     }
 
@@ -1131,7 +1071,7 @@ mod tests {
         let lazy = Lazy::new(move || DropTracker {
             dropped: dropped_clone,
         });
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert!(!dropped.load(Ordering::SeqCst));
 
         drop(lazy);
@@ -1147,7 +1087,7 @@ mod tests {
     // borrow checker issues. The STATE_COMPUTING case primarily protects against
     // internal implementation errors or edge cases.
     //
-    // The panic message is still tested indirectly through the code coverage.
+    // Re-entry is represented by LazyPoisonedError in the total force contract.
 
     #[rstest]
     fn test_lazy_into_inner_initializer_panic_is_typed_error() {
@@ -1176,8 +1116,8 @@ mod tests {
             #[test]
             fn prop_lazy_memoization(x in any::<i64>()) {
                 let lazy = Lazy::new(|| x);
-                let v1 = *lazy.force();
-                let v2 = *lazy.force();
+                let v1 = *lazy.force().unwrap();
+                let v2 = *lazy.force().unwrap();
                 prop_assert_eq!(v1, v2);
                 prop_assert_eq!(v1, x);
             }
@@ -1187,7 +1127,7 @@ mod tests {
             fn prop_lazy_functor_identity(x in any::<i64>()) {
                 let lazy = Lazy::new(|| x);
                 let mapped = Lazy::new(|| x).map(|v| v);
-                prop_assert_eq!(*lazy.force(), *mapped.force());
+                prop_assert_eq!(*lazy.force().unwrap(), *mapped.force().unwrap());
             }
 
             /// Functor composition law: lazy.map(f).map(g) == lazy.map(|x| g(f(x)))
@@ -1197,7 +1137,7 @@ mod tests {
                 let g = |v: i32| v.wrapping_mul(2);
                 let lazy1 = Lazy::new(|| x).map(f).map(g);
                 let lazy2 = Lazy::new(|| x).map(|v| g(f(v)));
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
 
             /// Monad left identity: pure(a).flat_map(f) == f(a)
@@ -1206,7 +1146,7 @@ mod tests {
                 let f = |v: i32| Lazy::new(move || v.wrapping_mul(2));
                 let lazy1 = Lazy::pure(x).flat_map(f);
                 let lazy2 = f(x);
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
 
             /// Monad right identity: m.flat_map(pure) == m
@@ -1214,7 +1154,7 @@ mod tests {
             fn prop_lazy_monad_right_identity(x in any::<i32>()) {
                 let lazy1 = Lazy::new(|| x);
                 let lazy2 = Lazy::new(|| x).flat_map(Lazy::pure);
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
 
             /// Monad associativity: (m.flat_map(f)).flat_map(g) == m.flat_map(|x| f(x).flat_map(g))
@@ -1224,7 +1164,7 @@ mod tests {
                 let g = |v: i32| Lazy::new(move || v.wrapping_mul(2));
                 let lazy1 = Lazy::new(|| x).flat_map(f).flat_map(g);
                 let lazy2 = Lazy::new(|| x).flat_map(|v| f(v).flat_map(g));
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
         }
     }

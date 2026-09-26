@@ -23,7 +23,7 @@
 //! });
 //! // "Computing..." is not printed yet
 //!
-//! let value = lazy.force();
+//! let value = lazy.force().unwrap();
 //! // Now "Computing..." is printed and value is 42
 //! assert_eq!(*value, 42);
 //! ```
@@ -83,5 +83,8 @@ pub use concurrent_lazy::{
 pub use continuation::Continuation;
 pub use either::Either;
 pub use freer::{Freer, FreerInterpretDecision, InterpretError, freer_interpret_decision};
-pub use lazy::{Lazy, LazyForceDecision, LazyPoisonedError, lazy_force_decision};
+pub use lazy::{
+    Lazy, LazyForceDecision, LazyGetMutDecision, LazyPoisonedError, lazy_force_decision,
+    lazy_get_mut_decision,
+};
 pub use trampoline::Trampoline;
