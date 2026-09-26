@@ -82,6 +82,6 @@ pub use concurrent_lazy::{
 };
 pub use continuation::Continuation;
 pub use either::Either;
-pub use freer::{Freer, InterpretError};
+pub use freer::{Freer, FreerInterpretDecision, InterpretError, freer_interpret_decision};
 pub use lazy::{Lazy, LazyForceDecision, LazyPoisonedError, lazy_force_decision};
 pub use trampoline::Trampoline;
