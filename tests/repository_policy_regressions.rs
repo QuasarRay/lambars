@@ -308,3 +308,30 @@ fn sc035_runtime_forbids_unsafe_without_local_escape_hatches() {
     assert!(UNSAFE_BOUNDARY_CHECKER.contains("zero unsafe syntax"));
     assert!(!UNSAFE_BOUNDARY_CHECKER.contains("ALLOWED ="));
 }
+
+
+#[test]
+fn sc011_sc022_sc038_sc040_repository_findings_are_closed_with_n_a_formal_domain() {
+    let qualification: serde_json::Value =
+        serde_json::from_str(QUALIFICATION).expect("qualification.json must parse");
+    let findings = qualification["findings"]
+        .as_array()
+        .expect("findings must be an array");
+
+    for id in ["SC-011", "SC-022", "SC-038", "SC-040"] {
+        let row = findings
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("missing {id}"));
+        assert_eq!(row["status"], "closed", "{id} must remain closed");
+        assert_eq!(row["verification_domain"], "repository_process");
+        assert_eq!(row["kani"], "not_applicable");
+        assert_eq!(row["verus"], "not_applicable");
+        assert!(
+            row["evidence"]
+                .as_array()
+                .is_some_and(|entries| !entries.is_empty()),
+            "{id} must retain concrete repository evidence"
+        );
+    }
+}
