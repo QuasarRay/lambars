@@ -33,7 +33,7 @@
 //! // Example usage will be added as features are implemented
 //! ```
 
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
