@@ -60,6 +60,7 @@ use smallvec::SmallVec;
 use std::any::Any;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 // =============================================================================
 // Continuation Types
@@ -70,7 +71,10 @@ use std::marker::PhantomData;
 /// Converts `A -> Freer<I, B>` to `Box<dyn Any> -> Freer<I, Box<dyn Any>>`.
 /// This enables storing heterogeneous continuations in a single queue.
 trait TypeErasedArrow<I> {
-    fn apply(self: Box<Self>, input: Box<dyn Any>) -> Freer<I, Box<dyn Any>>;
+    fn apply(
+        self: Box<Self>,
+        input: Box<dyn Any>,
+    ) -> Result<Freer<I, Box<dyn Any>>, InterpretError>;
 }
 
 struct FlatMapArrow<I, A, B, F>
@@ -85,12 +89,17 @@ impl<I: 'static, A: 'static, B: 'static, F> TypeErasedArrow<I> for FlatMapArrow<
 where
     F: FnOnce(A) -> Freer<I, B> + 'static,
 {
-    fn apply(self: Box<Self>, input: Box<dyn Any>) -> Freer<I, Box<dyn Any>> {
+    fn apply(
+        self: Box<Self>,
+        input: Box<dyn Any>,
+    ) -> Result<Freer<I, Box<dyn Any>>, InterpretError> {
         let value = *input
             .downcast::<A>()
-            .expect("Type mismatch in arrow application");
+            .map_err(|_| InterpretError::TypeMismatch {
+                context: "flat_map continuation input",
+            })?;
 
-        match (self.function)(value) {
+        Ok(match (self.function)(value) {
             Freer::Pure(b) => Freer::Pure(Box::new(b) as Box<dyn Any>),
             Freer::Impure {
                 instruction,
@@ -106,7 +115,7 @@ where
                     _result: PhantomData,
                 }
             }
-        }
+        })
     }
 }
 
@@ -123,11 +132,18 @@ where
     F: FnOnce(A) -> B + 'static,
 {
     #[inline]
-    fn apply(self: Box<Self>, input: Box<dyn Any>) -> Freer<I, Box<dyn Any>> {
+    fn apply(
+        self: Box<Self>,
+        input: Box<dyn Any>,
+    ) -> Result<Freer<I, Box<dyn Any>>, InterpretError> {
         let value = *input
             .downcast::<A>()
-            .expect("Type mismatch in map application");
-        Freer::Pure(Box::new((self.function)(value)) as Box<dyn Any>)
+            .map_err(|_| InterpretError::TypeMismatch {
+                context: "map continuation input",
+            })?;
+        Ok(Freer::Pure(
+            Box::new((self.function)(value)) as Box<dyn Any>
+        ))
     }
 }
 
@@ -135,8 +151,11 @@ struct BoxingArrow<T>(PhantomData<T>);
 
 impl<I: 'static, T: 'static> TypeErasedArrow<I> for BoxingArrow<T> {
     #[inline]
-    fn apply(self: Box<Self>, input: Box<dyn Any>) -> Freer<I, Box<dyn Any>> {
-        Freer::Pure(input)
+    fn apply(
+        self: Box<Self>,
+        input: Box<dyn Any>,
+    ) -> Result<Freer<I, Box<dyn Any>>, InterpretError> {
+        Ok(Freer::Pure(input))
     }
 }
 
@@ -153,8 +172,13 @@ where
     E: FnOnce(Box<dyn Any>) -> R + 'static,
 {
     #[inline]
-    fn apply(self: Box<Self>, input: Box<dyn Any>) -> Freer<I, Box<dyn Any>> {
-        Freer::Pure(Box::new((self.extract)(input)) as Box<dyn Any>)
+    fn apply(
+        self: Box<Self>,
+        input: Box<dyn Any>,
+    ) -> Result<Freer<I, Box<dyn Any>>, InterpretError> {
+        Ok(Freer::Pure(
+            Box::new((self.extract)(input)) as Box<dyn Any>
+        ))
     }
 }
 
@@ -292,6 +316,10 @@ pub enum InterpretError {
         /// Description of the context where mismatch occurred.
         context: &'static str,
     },
+    /// The user-provided instruction handler unwound.
+    HandlerPanicked,
+    /// A map/flat_map/extract continuation unwound.
+    ContinuationPanicked,
 }
 
 impl Display for InterpretError {
@@ -300,11 +328,43 @@ impl Display for InterpretError {
             Self::TypeMismatch { context } => {
                 write!(f, "Type mismatch in interpret: {context}")
             }
+            Self::HandlerPanicked => write!(f, "instruction handler panicked"),
+            Self::ContinuationPanicked => write!(f, "continuation panicked"),
         }
     }
 }
 
 impl std::error::Error for InterpretError {}
+
+/// Pure interpreter decision used by formal regressions.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum FreerInterpretDecision {
+    Continue = 0,
+    TypeMismatch = 1,
+    HandlerPanicked = 2,
+    ContinuationPanicked = 3,
+}
+
+/// Classifies an interpreter step without panicking.
+#[doc(hidden)]
+#[must_use]
+pub const fn freer_interpret_decision(
+    type_match: bool,
+    handler_panicked: bool,
+    continuation_panicked: bool,
+) -> FreerInterpretDecision {
+    if handler_panicked {
+        FreerInterpretDecision::HandlerPanicked
+    } else if continuation_panicked {
+        FreerInterpretDecision::ContinuationPanicked
+    } else if !type_match {
+        FreerInterpretDecision::TypeMismatch
+    } else {
+        FreerInterpretDecision::Continue
+    }
+}
 
 // =============================================================================
 // Freer Monad
@@ -381,8 +441,9 @@ impl<I: 'static, A: 'static> Freer<I, A> {
     /// Lifts an instruction into Freer.
     ///
     /// The `extract` function converts the type-erased result (`Box<dyn Any>`)
-    /// back to the expected concrete type. If the handler returns a wrong type,
-    /// `downcast` will fail and `extract` should panic (indicating a DSL design bug).
+    /// back to the expected concrete type. When interpreted through
+    /// [`try_interpret`](Self::try_interpret), a panic in `extract` is caught
+    /// and returned as `InterpretError::ContinuationPanicked`.
     ///
     /// # Examples
     ///
@@ -547,9 +608,10 @@ impl<I: 'static, A: 'static> Freer<I, A> {
     ///
     /// # Errors
     ///
-    /// Returns `Err(InterpretError::TypeMismatch)` if the final result type does not
-    /// match the expected type `A`. This indicates a bug in the DSL design or handler
-    /// implementation where the handler returns a value of unexpected type.
+    /// Returns:
+    /// - `TypeMismatch` for any intermediate or final type-erasure mismatch;
+    /// - `HandlerPanicked` if the instruction handler unwinds;
+    /// - `ContinuationPanicked` if a map/flat_map/extract continuation unwinds.
     ///
     /// # Examples
     ///
@@ -574,7 +636,9 @@ impl<I: 'static, A: 'static> Freer<I, A> {
         };
 
         let mut stack = ContinuationStack::new(queue);
-        let mut current_value: Box<dyn Any> = handler(instruction);
+        let mut current_value: Box<dyn Any> =
+            catch_unwind(AssertUnwindSafe(|| handler(instruction)))
+                .map_err(|_| InterpretError::HandlerPanicked)?;
 
         loop {
             let Some(arrow) = stack.pop() else {
@@ -585,7 +649,10 @@ impl<I: 'static, A: 'static> Freer<I, A> {
                 });
             };
 
-            match arrow.apply(current_value) {
+            let step = catch_unwind(AssertUnwindSafe(|| arrow.apply(current_value)))
+                .map_err(|_| InterpretError::ContinuationPanicked)??;
+
+            match step {
                 Freer::Pure(value) => current_value = value,
                 Freer::Impure {
                     instruction,
@@ -593,7 +660,8 @@ impl<I: 'static, A: 'static> Freer<I, A> {
                     ..
                 } => {
                     stack.push_queue(continuation_queue);
-                    current_value = handler(instruction);
+                    current_value = catch_unwind(AssertUnwindSafe(|| handler(instruction)))
+                        .map_err(|_| InterpretError::HandlerPanicked)?;
                 }
             }
         }
@@ -819,6 +887,109 @@ mod tests {
         assert_eq!(result, Ok(42));
     }
 
+    #[rstest]
+    fn test_try_interpret_catches_handler_panic() {
+        let program = test_get();
+        let result = program.try_interpret(|_| -> Box<dyn Any> {
+            panic!("handler panic");
+        });
+        assert_eq!(result, Err(InterpretError::HandlerPanicked));
+    }
+
+    #[rstest]
+    fn test_try_interpret_catches_extractor_panic() {
+        let program = Freer::<TestCommand, ()>::lift_instruction(
+            TestCommand::Get,
+            |_| -> i32 { panic!("extractor panic") },
+        );
+        let result = program.try_interpret(|_| Box::new(42i32));
+        assert_eq!(result, Err(InterpretError::ContinuationPanicked));
+    }
+
+    #[rstest]
+    fn test_type_erased_map_mismatch_is_typed_error() {
+        let arrow: Box<dyn TypeErasedArrow<()>> = Box::new(MapArrow {
+            function: |value: i32| value + 1,
+            _phantom: PhantomData,
+        });
+        let result = arrow.apply(Box::new("wrong type"));
+        assert!(matches!(
+            result,
+            Err(InterpretError::TypeMismatch {
+                context: "map continuation input"
+            })
+        ));
+    }
+
+    #[rstest]
+    fn test_type_erased_flat_map_mismatch_is_typed_error() {
+        let arrow: Box<dyn TypeErasedArrow<()>> = Box::new(FlatMapArrow {
+            function: |value: i32| Freer::<(), i32>::pure(value + 1),
+            _phantom: PhantomData,
+        });
+        let result = arrow.apply(Box::new("wrong type"));
+        assert!(matches!(
+            result,
+            Err(InterpretError::TypeMismatch {
+                context: "flat_map continuation input"
+            })
+        ));
+    }
+
+    #[rstest]
+    fn test_try_interpret_on_independent_threads_preserves_result() {
+        let handles: Vec<_> = (0..4)
+            .map(|value| {
+                std::thread::spawn(move || {
+                    Freer::<(), i32>::pure(value)
+                        .map(|x| x + 1)
+                        .try_interpret(|()| Box::new(()))
+                })
+            })
+            .collect();
+
+        for (index, handle) in handles.into_iter().enumerate() {
+            assert_eq!(handle.join().unwrap(), Ok(index as i32 + 1));
+        }
+    }
+
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn test_try_interpret_under_rayon_preserves_result() {
+        let (left, right) = rayon::join(
+            || {
+                Freer::<(), i32>::pure(20)
+                    .map(|x| x + 1)
+                    .try_interpret(|()| Box::new(()))
+            },
+            || {
+                Freer::<(), i32>::pure(21)
+                    .map(|x| x + 1)
+                    .try_interpret(|()| Box::new(()))
+            },
+        );
+        assert_eq!(left, Ok(21));
+        assert_eq!(right, Ok(22));
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_interpret_inside_async_tasks_preserves_result() {
+        let left = tokio::spawn(async {
+            Freer::<(), i32>::pure(20)
+                .map(|x| x + 1)
+                .try_interpret(|()| Box::new(()))
+        });
+        let right = tokio::spawn(async {
+            Freer::<(), i32>::pure(21)
+                .map(|x| x + 1)
+                .try_interpret(|()| Box::new(()))
+        });
+
+        assert_eq!(left.await.unwrap(), Ok(21));
+        assert_eq!(right.await.unwrap(), Ok(22));
+    }
+
     // =========================================================================
     // Stack safety tests
     // =========================================================================
@@ -1039,7 +1210,7 @@ mod tests {
 
         // queue2 should be processed first (LIFO), then queue1
         let arrow1 = stack.pop().expect("Should have arrow from queue2");
-        let result1 = arrow1.apply(Box::new(5i32));
+        let result1 = arrow1.apply(Box::new(5i32)).unwrap();
         if let Freer::Pure(boxed) = result1 {
             let value = *boxed.downcast::<i32>().unwrap();
             assert_eq!(value, 10); // 5 * 2
@@ -1048,7 +1219,7 @@ mod tests {
         }
 
         let arrow2 = stack.pop().expect("Should have arrow from queue1");
-        let result2 = arrow2.apply(Box::new(5i32));
+        let result2 = arrow2.apply(Box::new(5i32)).unwrap();
         if let Freer::Pure(boxed) = result2 {
             let value = *boxed.downcast::<i32>().unwrap();
             assert_eq!(value, 6); // 5 + 1
