@@ -34,8 +34,8 @@ tokio::task_local! {
 /// Tests that global() returns the same Runtime instance every time.
 #[rstest]
 fn test_global_runtime_is_singleton() {
-    let runtime1 = global();
-    let runtime2 = global();
+    let runtime1 = global().unwrap();
+    let runtime2 = global().unwrap();
 
     // Compare raw pointers to verify it's the same instance
     assert!(ptr::eq(runtime1, runtime2));
@@ -49,9 +49,8 @@ fn test_global_runtime_from_multiple_threads() {
     let handles: Vec<thread::JoinHandle<usize>> = (0..4)
         .map(|_| {
             thread::spawn(|| {
-                let runtime = global();
-                // Return raw pointer as usize for comparison
-                runtime as *const _ as usize
+                let runtime = global().unwrap();
+                std::ptr::from_ref(runtime).addr()
             })
         })
         .collect();
@@ -75,7 +74,7 @@ fn test_global_runtime_from_multiple_threads() {
 /// Tests that handle() returns a working handle from outside runtime.
 #[rstest]
 fn test_handle_from_outside_runtime() {
-    let obtained_handle = handle();
+    let obtained_handle = handle().unwrap();
 
     // Verify the handle works by spawning a task
     let result = obtained_handle.block_on(async { 42 });
@@ -86,7 +85,7 @@ fn test_handle_from_outside_runtime() {
 #[rstest]
 #[tokio::test]
 async fn test_handle_inside_runtime() {
-    let obtained_handle = handle();
+    let obtained_handle = handle().unwrap();
 
     // Verify the handle works by spawning a task
     let result: i32 = obtained_handle.spawn(async { 42 }).await.unwrap();
@@ -105,7 +104,7 @@ fn test_handle_caching_is_thread_local() {
             let counter = counter.clone();
             thread::spawn(move || {
                 // Each thread should be able to get a handle
-                let h = handle();
+                let h = handle().unwrap();
                 h.block_on(async move {
                     counter.fetch_add(1, Ordering::SeqCst);
                 });
@@ -200,8 +199,8 @@ fn test_try_run_blocking_multiple_calls() {
     let result3 = try_run_blocking(async { 3 });
 
     assert_eq!(result1, Ok(1));
-    assert_eq!(result2, Ok(2));
-    assert_eq!(result3, Ok(3));
+    assert_eq!(result2, 2);
+    assert_eq!(result3, 3);
 }
 
 /// Tests that try_run_blocking preserves result types.
@@ -381,7 +380,7 @@ fn test_try_run_blocking_uses_current_runtime_not_global() {
 #[rstest]
 fn test_run_blocking_from_outside() {
     let result = run_blocking(async { 42 });
-    assert_eq!(result, 42);
+    assert_eq!(result, Ok(42));
 }
 
 /// Tests that run_blocking works with async operations.
@@ -391,17 +390,18 @@ fn test_run_blocking_with_async_work() {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         "completed"
     });
-    assert_eq!(result, "completed");
+    assert_eq!(result, Ok("completed"));
 }
 
 /// Tests that run_blocking works from inside a multi-thread runtime.
 #[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_run_blocking_inside_multi_thread_runtime() {
-    let result: i32 = tokio::task::spawn_blocking(|| run_blocking(async { 42 }))
-        .await
-        .unwrap();
-    assert_eq!(result, 42);
+    let result: Result<i32, BlockingError> =
+        tokio::task::spawn_blocking(|| run_blocking(async { 42 }))
+            .await
+            .unwrap();
+    assert_eq!(result, Ok(42));
 }
 
 /// Tests that run_blocking can be called multiple times.
@@ -411,19 +411,21 @@ fn test_run_blocking_multiple_calls() {
     let result2 = run_blocking(async { 2 });
     let result3 = run_blocking(async { 3 });
 
-    assert_eq!(result1, 1);
-    assert_eq!(result2, 2);
-    assert_eq!(result3, 3);
+    assert_eq!(result1, Ok(1));
+    assert_eq!(result2, Ok(2));
+    assert_eq!(result3, Ok(3));
 }
 
 /// Tests that run_blocking preserves error types.
 #[rstest]
 fn test_run_blocking_preserves_result() {
-    let success: Result<i32, &str> = run_blocking(async { Ok(42) });
-    assert_eq!(success, Ok(42));
+    let success: Result<Result<i32, &str>, BlockingError> =
+        run_blocking(async { Ok(42) });
+    assert_eq!(success, Ok(Ok(42)));
 
-    let failure: Result<i32, &str> = run_blocking(async { Err("error") });
-    assert_eq!(failure, Err("error"));
+    let failure: Result<Result<i32, &str>, BlockingError> =
+        run_blocking(async { Err("error") });
+    assert_eq!(failure, Ok(Err("error")));
 }
 
 /// Tests that run_blocking works with complex async computations.
@@ -434,7 +436,7 @@ fn test_run_blocking_complex_computation() {
         let value2 = async { 20 }.await;
         value1 + value2
     });
-    assert_eq!(result, 30);
+    assert_eq!(result, Ok(30));
 }
 
 // =============================================================================
@@ -445,10 +447,10 @@ fn test_run_blocking_complex_computation() {
 #[rstest]
 fn test_runtime_integration() {
     // Get global runtime
-    let runtime = global();
+    let runtime = global().unwrap();
 
     // Get handle from global runtime
-    let obtained_handle = handle();
+    let obtained_handle = handle().unwrap();
 
     // run_blocking should work
     let result1 = run_blocking(async { 1 });
@@ -459,25 +461,25 @@ fn test_runtime_integration() {
     // Block on using runtime
     let result3 = runtime.block_on(async { 3 });
 
-    assert_eq!(result1, 1);
-    assert_eq!(result2, 2);
-    assert_eq!(result3, 3);
+    assert_eq!(result1, Ok(1));
+    assert_eq!(result2, Ok(2));
+    assert_eq!(result3, Ok(3));
 }
 
 /// Tests that run_blocking does not create new runtimes on each call.
 #[rstest]
 fn test_run_blocking_does_not_create_new_runtimes() {
     // Get the global runtime pointer before calls
-    let runtime_before = global() as *const _;
+    let runtime_before = global().unwrap() as *const _;
 
     // Make several run_blocking calls
     for i in 0..10 {
         let result = run_blocking(async move { i });
-        assert_eq!(result, i);
+        assert_eq!(result, Ok(i));
     }
 
     // Get the global runtime pointer after calls
-    let runtime_after = global() as *const _;
+    let runtime_after = global().unwrap() as *const _;
 
     // Should be the same runtime
     assert!(ptr::eq(runtime_before, runtime_after));
@@ -497,7 +499,7 @@ async fn test_try_and_non_try_consistency_multi_thread() {
         .unwrap();
 
     assert_eq!(try_result, Ok(42));
-    assert_eq!(non_try_result, 42);
+    assert_eq!(non_try_result, Ok(42));
 }
 
 // =============================================================================

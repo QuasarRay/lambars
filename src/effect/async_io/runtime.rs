@@ -70,6 +70,7 @@ pub struct RuntimeInitializationError {
 }
 
 impl RuntimeInitializationError {
+    /// Returns the underlying I/O error kind reported by Tokio runtime construction.
     #[must_use]
     pub const fn kind(self) -> ErrorKind {
         self.kind
@@ -78,7 +79,11 @@ impl RuntimeInitializationError {
 
 impl fmt::Display for RuntimeInitializationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "failed to initialize global Tokio runtime: {:?}", self.kind)
+        write!(
+            formatter,
+            "failed to initialize global Tokio runtime: {:?}",
+            self.kind
+        )
     }
 }
 
@@ -198,7 +203,10 @@ impl fmt::Display for BlockingError {
                 )
             }
             Self::RuntimeInitializationFailed(kind) => {
-                write!(formatter, "global Tokio runtime initialization failed: {kind:?}")
+                write!(
+                    formatter,
+                    "global Tokio runtime initialization failed: {kind:?}"
+                )
             }
             Self::ExecutionPanicked => {
                 write!(formatter, "blocking execution unwound")
@@ -225,11 +233,9 @@ impl Error for BlockingError {}
 /// - `CurrentThreadRuntime`: Called from a current-thread runtime
 /// - `UnsupportedRuntimeFlavor`: Called from an unknown runtime flavor
 ///
-/// # Panics
-///
-/// In multi-thread runtime, panics if called from `LocalSet::run_until()`
-/// or when `disallow_block_in_place` is enabled.
-///
+/// Blocking-context panics are caught and returned as
+/// `BlockingError::ExecutionPanicked`.
+
 /// # Example
 ///
 /// ```rust,ignore
@@ -260,6 +266,15 @@ pub const fn blocking_execution_decision(context: u8) -> BlockingExecutionDecisi
     }
 }
 
+/// Executes a future synchronously without exposing a panic-only failure path.
+///
+/// Runtime-construction failures, unsupported runtime contexts, and unwinding
+/// from the blocking operation are converted to `BlockingError`.
+///
+/// # Errors
+///
+/// Returns a `BlockingError` if the global runtime cannot be initialized,
+/// the current Tokio runtime cannot support blocking, or execution unwinds.
 #[inline]
 pub fn try_run_blocking<F, T>(future: F) -> Result<T, BlockingError>
 where

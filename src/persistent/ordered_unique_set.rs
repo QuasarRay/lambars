@@ -1199,7 +1199,6 @@ fn intersection_slices<T: Clone + Ord>(left: &[T], right: &[T]) -> Vec<T> {
 const SORTED_INVARIANT_PANIC_MESSAGE: &str =
     "from_sorted_* requires strictly increasing elements (sorted + deduplicated)";
 
-#[cfg(debug_assertions)]
 #[inline]
 fn is_strictly_sorted<T: Ord>(slice: &[T]) -> bool {
     slice.windows(2).all(|window| window[0] < window[1])

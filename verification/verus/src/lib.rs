@@ -55,15 +55,30 @@ pub proof fn sc004_normalize_pair_is_strict_and_unique(a: int, b: int)
 {
     if a < b {
         assert(normalize_pair(a, b) == seq![a, b]);
+        assert(exists|i: int| 0 <= i < seq![a, b].len() && seq![a, b][i] == a) by {
+            assert(seq![a, b][0] == a);
+        }
+        assert(exists|i: int| 0 <= i < seq![a, b].len() && seq![a, b][i] == b) by {
+            assert(seq![a, b][1] == b);
+        }
         assert(seq![a, b].contains(a));
         assert(seq![a, b].contains(b));
     } else if b < a {
         assert(normalize_pair(a, b) == seq![b, a]);
+        assert(exists|i: int| 0 <= i < seq![b, a].len() && seq![b, a][i] == a) by {
+            assert(seq![b, a][1] == a);
+        }
+        assert(exists|i: int| 0 <= i < seq![b, a].len() && seq![b, a][i] == b) by {
+            assert(seq![b, a][0] == b);
+        }
         assert(seq![b, a].contains(a));
         assert(seq![b, a].contains(b));
     } else {
         assert(a == b);
         assert(normalize_pair(a, b) == seq![a]);
+        assert(exists|i: int| 0 <= i < seq![a].len() && seq![a][i] == a) by {
+            assert(seq![a][0] == a);
+        }
         assert(seq![a].contains(a));
     }
 }

@@ -241,11 +241,7 @@ fn sc026_panic_contract_is_explicit_and_hidden_pool_panics_do_not_return() {
         assert!(PANIC_POLICY.contains(required), "panic policy missing {required}");
     }
 
-    assert!(
-        !ASYNC_POOL_SOURCE.contains("expect(\"semaphore should not be closed\")")
-    );
-    assert!(
-        !ASYNC_POOL_SOURCE.contains("expect(\"channel should not be closed\")")
-    );
+    assert!(!ASYNC_POOL_SOURCE.contains("expect(\"semaphore should not be closed\")"));
+    assert!(!ASYNC_POOL_SOURCE.contains("expect(\"channel should not be closed\")"));
     assert!(ASYNC_POOL_SOURCE.contains("PoolError::PoolClosed"));
 }

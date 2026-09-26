@@ -60,9 +60,24 @@ fn persistent_hashmap_iterator_exactly_once(size: usize) -> bool {
         })
 }
 
-// Small structural boundaries are checked directly by both runtime regression
-// and Kani. Larger boundary IDs delegate to the same predicates only after
-// refinement/contract decomposition avoids infeasible loop unwinding.
+// Vector structural boundaries are small enough to execute directly under Kani.
+// HashMap boundaries intentionally remain runtime regressions because the
+// production default hasher obtains process-random keys from the operating system;
+// symbolically expanding getrandom + HAMT allocation is neither a proof of entropy
+// nor a tractable refinement proof. Hash security/state invariants are proved in
+// safety_regressions.rs, while these concrete HAMT behavior cases remain executable
+// regressions against the production implementation.
+
+macro_rules! runtime_boundary_cases {
+    ($predicate:path; $($name:ident = $value:expr),+ $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                assert!($predicate($value));
+            }
+        )+
+    };
+}
 
 boundary_cases! {
     persistent_vector_from_vec_matches;
@@ -94,7 +109,7 @@ boundary_cases! {
     persistent_vector_iterator_length_9_visits_every_element_once = 9
 }
 
-boundary_cases! {
+runtime_boundary_cases! {
     persistent_hashmap_insert_matches_std;
     persistent_hashmap_insert_unique_keys_to_size_0_matches_std_hashmap = 0,
     persistent_hashmap_insert_unique_keys_to_size_1_matches_std_hashmap = 1,
@@ -104,7 +119,7 @@ boundary_cases! {
     persistent_hashmap_insert_unique_keys_to_size_9_matches_std_hashmap = 9
 }
 
-boundary_cases! {
+runtime_boundary_cases! {
     persistent_hashmap_iterator_exactly_once;
     persistent_hashmap_iter_size_0_yields_every_entry_exactly_once = 0,
     persistent_hashmap_iter_size_1_yields_every_entry_exactly_once = 1,

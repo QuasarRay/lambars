@@ -13,7 +13,7 @@
 //! - `initializer` is `Some` only when `state` is `STATE_EMPTY`
 //! - Transition to `STATE_COMPUTING` is done via `compare_exchange` for exclusivity
 //! - Multiple threads can safely access via Atomic operations and adaptive
-//!   spin + `parking_lot::Condvar` blocking wait
+//!   spin + `std::sync::Condvar` blocking wait
 //!
 //! # Referential Transparency Note
 //!
@@ -40,7 +40,7 @@
 //!
 //! - **`STATE_READY` fast path**: Lock-free `Acquire` load only (zero overhead after init)
 //! - **Waiting strategy**: Adaptive spin (128 iterations) followed by
-//!   `parking_lot::Condvar` blocking for longer initializations
+//!   `std::sync::Condvar` blocking for longer initializations
 //! - **Cache line separation**: `state` (hot path) and `wait_sync` (cold path) are
 //!   placed on separate cache lines via `#[repr(C)]` + `#[repr(C, align(64))]`
 //!   to prevent false sharing in high-thread-count scenarios
@@ -89,8 +89,7 @@ use std::fmt;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU8, Ordering};
-
-use parking_lot::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, MutexGuard};
 
 /// State: not yet initialized
 const STATE_EMPTY: u8 = 0;
@@ -124,6 +123,36 @@ impl WaitSync {
             condvar: Condvar::new(),
             mutex: Mutex::new(()),
         }
+    }
+
+    #[inline]
+    fn lock(&self) -> MutexGuard<'_, ()> {
+        self.mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[inline]
+    fn wait<'a>(&self, guard: MutexGuard<'a, ()>) -> MutexGuard<'a, ()> {
+        self.condvar
+            .wait(guard)
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[inline]
+    fn wait_timeout<'a>(
+        &self,
+        guard: MutexGuard<'a, ()>,
+        timeout: std::time::Duration,
+    ) -> (MutexGuard<'a, ()>, std::sync::WaitTimeoutResult) {
+        self.condvar
+            .wait_timeout(guard, timeout)
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[inline]
+    fn notify_all(&self) {
+        self.condvar.notify_all();
     }
 }
 
@@ -217,12 +246,12 @@ impl<T, F> Drop for InitializationDropGuard<'_, T, F> {
         }
 
         {
-            let _lock = self.concurrent_lazy.wait_sync.0.mutex.lock();
+            let _lock = self.concurrent_lazy.wait_sync.0.lock();
             self.concurrent_lazy
                 .state
                 .store(STATE_POISONED, Ordering::Release);
         }
-        self.concurrent_lazy.wait_sync.0.condvar.notify_all();
+        self.concurrent_lazy.wait_sync.0.notify_all();
     }
 }
 
@@ -514,7 +543,9 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     });
                     assert!(
                         !is_reentrant,
-                        "ConcurrentLazy::force re-entrant initialization detected:                          force() revisited the same ConcurrentLazy instance on the                          initializing thread"
+                        "ConcurrentLazy::force re-entrant initialization detected: \
+                         force() revisited the same ConcurrentLazy instance on the \
+                         initializing thread"
                     );
                     self.wait_on_initialization();
                     state = self.state.load(Ordering::Acquire);
@@ -539,14 +570,16 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             stack
                 .borrow()
                 .iter()
-                .any(|active| concurrent_lazy_pointer_reentry_matches(*active, initialization_identity))
+                .any(|active| {
+                    concurrent_lazy_pointer_reentry_matches(*active, initialization_identity)
+                })
         });
         if duplicate {
             {
-                let _lock = self.wait_sync.0.mutex.lock();
+                let _lock = self.wait_sync.0.lock();
                 self.state.store(STATE_POISONED, Ordering::Release);
             }
-            self.wait_sync.0.condvar.notify_all();
+            self.wait_sync.0.notify_all();
             return Err(ConcurrentLazyPoisonedError);
         }
 
@@ -576,14 +609,14 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         };
 
         {
-            let _lock = self.wait_sync.0.mutex.lock();
+            let _lock = self.wait_sync.0.lock();
             self.state.store(
                 if succeeded { STATE_READY } else { STATE_POISONED },
                 Ordering::Release,
             );
             guard.completed = true;
         }
-        self.wait_sync.0.condvar.notify_all();
+        self.wait_sync.0.notify_all();
 
         if !succeeded {
             return Err(ConcurrentLazyPoisonedError);
@@ -599,7 +632,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     const SPIN_BEFORE_YIELD: u32 = 16;
 
     /// Total number of spin iterations (including yield phase) before
-    /// falling back to `parking_lot::Condvar` blocking wait.
+    /// falling back to `std::sync::Condvar` blocking wait.
     const ADAPTIVE_SPIN_LIMIT: u32 = 64;
 
     /// Spins then blocks via Condvar until `state` leaves `STATE_COMPUTING`.
@@ -625,9 +658,9 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             }
         }
 
-        let mut guard = self.wait_sync.0.mutex.lock();
+        let mut guard = self.wait_sync.0.lock();
         while self.state.load(Ordering::Acquire) == STATE_COMPUTING {
-            self.wait_sync.0.condvar.wait(&mut guard);
+            guard = self.wait_sync.0.wait(guard);
         }
     }
 
@@ -940,7 +973,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                 return Err(ConcurrentLazyWaitError::TimedOut);
             }
 
-            let mut guard = self.wait_sync.0.mutex.lock();
+            let mut guard = self.wait_sync.0.lock();
             while self.state.load(Ordering::Acquire) == STATE_COMPUTING {
                 let elapsed = start.elapsed();
                 let Some(remaining) = timeout.checked_sub(elapsed) else {
@@ -950,7 +983,8 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     return Err(ConcurrentLazyWaitError::TimedOut);
                 }
 
-                let wait = self.wait_sync.0.condvar.wait_for(&mut guard, remaining);
+                let (next_guard, wait) = self.wait_sync.0.wait_timeout(guard, remaining);
+                guard = next_guard;
                 if wait.timed_out()
                     && self.state.load(Ordering::Acquire) == STATE_COMPUTING
                 {
@@ -980,6 +1014,16 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             .map_err(|_| ConcurrentLazyWaitError::AsyncWorkerFailed)?
     }
 
+    /// Forces initialization without propagating initializer panics.
+    ///
+    /// Returns the memoized value on success. If initialization panics, the
+    /// instance is poisoned and `Err(ConcurrentLazyPoisonedError)` is returned.
+    /// Same-thread re-entry is also returned as an error before any blocking wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConcurrentLazyPoisonedError` when the instance is poisoned,
+    /// initialization panics, or the same instance is re-entered by its initializer.
     pub fn try_force(&self) -> Result<&T, ConcurrentLazyPoisonedError> {
         let mut state = self.state.load(Ordering::Acquire);
 
@@ -1491,14 +1535,14 @@ mod tests {
     #[rstest]
     fn test_wait_sync_creation() {
         let wait_sync = WaitSync::new();
-        let _guard = wait_sync.mutex.lock();
+        let _guard = wait_sync.lock();
     }
 
     #[rstest]
     fn test_concurrent_lazy_struct_has_repr_c_layout() {
         let lazy = ConcurrentLazy::new(|| 42);
-        let state_addr = &raw const lazy.state as usize;
-        let wait_sync_addr = &raw const lazy.wait_sync as usize;
+        let state_addr = std::ptr::from_ref(&lazy.state).addr();
+        let wait_sync_addr = std::ptr::from_ref(&lazy.wait_sync).addr();
         assert!(wait_sync_addr > state_addr);
         assert_eq!(wait_sync_addr % CACHE_LINE_SIZE, 0);
     }
@@ -1676,10 +1720,7 @@ mod tests {
         );
         assert!(before.elapsed() < std::time::Duration::from_millis(80));
         assert_eq!(handle.join().unwrap(), 42);
-        assert_eq!(
-            lazy.wait_for(std::time::Duration::from_secs(1)),
-            Ok(&42)
-        );
+        assert_eq!(lazy.wait_for(std::time::Duration::from_secs(1)), Ok(&42));
     }
 
     #[rstest]
