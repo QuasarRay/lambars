@@ -213,7 +213,7 @@ where
 /// This function uses `unsafe` transmute internally but is safe because:
 /// 1. `Eff<E, A>` is a repr(Rust) struct containing `EffInner<E, A>`
 /// 2. The effect type `E` is only a phantom type marker
-/// 3. The actual data (Pure value, Impure operation, or `FlatMap`) is unchanged
+/// 3. The actual data (Pure, Impure, FlatMap, or Failed) is unchanged
 fn convert_effect_type<E1: Effect, E2: Effect, A: 'static>(effect: Eff<E1, A>) -> Eff<E2, A> {
     match effect.inner {
         EffInner::Pure(value) => Eff {
@@ -225,7 +225,9 @@ fn convert_effect_type<E1: Effect, E2: Effect, A: 'static>(effect: Eff<E1, A>) -
                 operation_tag: operation.operation_tag,
                 arguments: operation.arguments,
                 continuation: Box::new(move |result| {
-                    convert_effect_type::<E1, E2, A>((operation.continuation)(result))
+                    convert_effect_type::<E1, E2, A>(
+                        Eff::<E1, A>::invoke_continuation(operation.continuation, result),
+                    )
                 }),
             }),
         },
@@ -236,11 +238,16 @@ fn convert_effect_type<E1: Effect, E2: Effect, A: 'static>(effect: Eff<E1, A>) -
                 inner: EffInner::FlatMap(Box::new(super::eff::EffFlatMap {
                     source,
                     transform: Box::new(move |source| {
-                        convert_effect_type::<E1, E2, A>(transform(source))
+                        convert_effect_type::<E1, E2, A>(
+                            Eff::<E1, A>::invoke_continuation(transform, source),
+                        )
                     }),
                 })),
             }
         }
+        EffInner::Failed(error) => Eff {
+            inner: EffInner::Failed(error),
+        },
     }
 }
 
@@ -488,7 +495,7 @@ mod tests {
         let projected: Eff<ReaderEffect<i32>, i32> =
             <Row as Member<ReaderEffect<i32>, Here>>::project(injected).unwrap();
 
-        let result = ReaderHandler::new(0).run(projected);
+        let result = ReaderHandler::new(0).run(projected).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -501,7 +508,7 @@ mod tests {
         let projected: Eff<StateEffect<i32>, i32> =
             <Row as Member<StateEffect<i32>, There<Here>>>::project(injected).unwrap();
 
-        let (result, _) = StateHandler::new(0).run(projected);
+        let (result, _) = StateHandler::new(0).run(projected).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -513,7 +520,7 @@ mod tests {
         let projected: Eff<ReaderEffect<i32>, i32> =
             <Row as Member<ReaderEffect<i32>, Here>>::project(injected).unwrap();
 
-        let result = ReaderHandler::new(123).run(projected);
+        let result = ReaderHandler::new(123).run(projected).unwrap();
         assert_eq!(result, 123);
     }
 
@@ -526,7 +533,7 @@ mod tests {
         let projected: Eff<StateEffect<i32>, i32> =
             <Row as Member<StateEffect<i32>, There<Here>>>::project(injected).unwrap();
 
-        let (result, _) = StateHandler::new(456).run(projected);
+        let (result, _) = StateHandler::new(456).run(projected).unwrap();
         assert_eq!(result, 456);
     }
 
@@ -576,7 +583,7 @@ mod tests {
         let row_eff: Eff<Row, i32> = <Row as Member<ReaderEffect<i32>, Here>>::inject(reader_eff);
 
         let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(row_eff).unwrap();
-        let result = ReaderHandler::new(21).run(projected);
+        let result = ReaderHandler::new(21).run(projected).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -589,7 +596,7 @@ mod tests {
             <Row as Member<StateEffect<i32>, There<Here>>>::inject(state_eff);
 
         let projected = <Row as Member<StateEffect<i32>, There<Here>>>::project(row_eff).unwrap();
-        let (result, final_state) = StateHandler::new(5).run(projected);
+        let (result, final_state) = StateHandler::new(5).run(projected).unwrap();
         assert_eq!(result, 15);
         assert_eq!(final_state, 15);
     }

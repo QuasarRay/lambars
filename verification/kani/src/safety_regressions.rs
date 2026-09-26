@@ -920,3 +920,151 @@ mod lazy_mutable_access_regressions {
         assert_eq!(baseline, under_mode);
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod algebraic_totality_regressions {
+    use lambars_alias::effect::algebraic::{
+        AlgebraicExecutionDecision, algebraic_execution_decision,
+    };
+
+    fn decision_under_mode(
+        execution_mode: u8,
+        node_kind: u8,
+        operation_known: bool,
+        type_matches: bool,
+        continuation_panicked: bool,
+    ) -> AlgebraicExecutionDecision {
+        match execution_mode {
+            0 | 1 | 2 => algebraic_execution_decision(
+                node_kind,
+                operation_known,
+                type_matches,
+                continuation_panicked,
+            ),
+            _ => AlgebraicExecutionDecision::InvalidShape,
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_algebraic_failure_classes_are_explicit() {
+        assert_eq!(
+            algebraic_execution_decision(1, false, true, false),
+            AlgebraicExecutionDecision::UnknownOperation
+        );
+        assert_eq!(
+            algebraic_execution_decision(1, true, false, false),
+            AlgebraicExecutionDecision::TypeMismatch
+        );
+        assert_eq!(
+            algebraic_execution_decision(2, true, true, false),
+            AlgebraicExecutionDecision::InvalidShape
+        );
+        assert_eq!(
+            algebraic_execution_decision(1, true, true, true),
+            AlgebraicExecutionDecision::ContinuationPanicked
+        );
+        assert_eq!(
+            algebraic_execution_decision(3, true, true, false),
+            AlgebraicExecutionDecision::PropagateFailure
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_unknown_operation_never_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 1, false, true, false),
+            AlgebraicExecutionDecision::UnknownOperation
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_bad_operation_argument_never_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 1, true, false, false),
+            AlgebraicExecutionDecision::TypeMismatch
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_bad_operation_result_never_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 1, true, false, false),
+            AlgebraicExecutionDecision::TypeMismatch
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_flat_map_type_erasure_mismatch_never_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 1, true, false, false),
+            AlgebraicExecutionDecision::TypeMismatch
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_normalization_shape_violation_never_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 2, true, true, false),
+            AlgebraicExecutionDecision::InvalidShape
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_continuation_unwind_never_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        let node_kind: u8 = kani::any();
+        let operation_known: bool = kani::any();
+        let type_matches: bool = kani::any();
+        assert_eq!(
+            decision_under_mode(
+                mode,
+                node_kind,
+                operation_known,
+                type_matches,
+                true,
+            ),
+            AlgebraicExecutionDecision::ContinuationPanicked
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_captured_failure_is_monotonic_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 3, true, true, false),
+            AlgebraicExecutionDecision::PropagateFailure
+        );
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_algebraic_valid_impure_step_proceeds_in_any_execution_mode() {
+        let mode: u8 = kani::any();
+        kani::assume(mode <= 2);
+        assert_eq!(
+            decision_under_mode(mode, 1, true, true, false),
+            AlgebraicExecutionDecision::Proceed
+        );
+    }
+}

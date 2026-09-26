@@ -18,12 +18,12 @@
 //!     .then(WriterEffect::tell(" World".to_string()))
 //!     .then(Eff::pure(42));
 //!
-//! let (result, log) = WriterHandler::new().run(computation);
+//! let (result, log) = WriterHandler::new().run(computation).unwrap();
 //! assert_eq!(result, 42);
 //! assert_eq!(log, "Hello World");
 //! ```
 
-use super::eff::{Eff, EffInner, OperationTag};
+use super::eff::{AlgebraicError, Eff, EffInner, OperationTag};
 use super::effect::Effect;
 use super::handler::Handler;
 use crate::typeclass::Monoid;
@@ -54,7 +54,7 @@ mod writer_operations {
 ///     .then(WriterEffect::tell(vec!["step2".to_string()]))
 ///     .then(Eff::pure("done"));
 ///
-/// let (result, log) = WriterHandler::new().run(computation);
+/// let (result, log) = WriterHandler::new().run(computation).unwrap();
 /// assert_eq!(result, "done");
 /// assert_eq!(log, vec!["step1".to_string(), "step2".to_string()]);
 /// ```
@@ -74,7 +74,7 @@ impl<W: Monoid + Clone + Send + Sync + 'static> WriterEffect<W> {
     /// use lambars::effect::algebraic::{WriterEffect, WriterHandler, Handler};
     ///
     /// let computation = WriterEffect::tell("message".to_string());
-    /// let ((), log) = WriterHandler::new().run(computation);
+    /// let ((), log) = WriterHandler::new().run(computation).unwrap();
     /// assert_eq!(log, "message");
     /// ```
     pub fn tell(output: W) -> Eff<Self, ()> {
@@ -103,7 +103,7 @@ impl<W: Monoid + Clone + Send + Sync + 'static> WriterEffect<W> {
 ///     .then(WriterEffect::tell("c".to_string()))
 ///     .then(Eff::pure(42));
 ///
-/// let (result, log) = handler.run(computation);
+/// let (result, log) = handler.run(computation).unwrap();
 /// assert_eq!(result, 42);
 /// assert_eq!(log, "abc");
 /// ```
@@ -133,45 +133,56 @@ impl<W: Monoid + Clone + 'static> WriterHandler<W> {
     fn run_with_buffer<A: 'static>(
         computation: Eff<WriterEffect<W>, A>,
         buffer: &RefCell<Vec<W>>,
-    ) -> A {
-        // Early return for Pure case (avoids normalize() overhead)
-        if let EffInner::Pure(value) = computation.inner {
-            return value;
-        }
-
+    ) -> Result<A, AlgebraicError> {
         let mut current_computation = computation;
 
         loop {
             let normalized = current_computation.normalize();
 
             match normalized.inner {
-                EffInner::Pure(value) => return value,
+                EffInner::Pure(value) => return Ok(value),
                 EffInner::Impure(operation) => match operation.operation_tag {
                     writer_operations::TELL => {
-                        let output = *operation
-                            .arguments
-                            .downcast::<W>()
-                            .expect("Type mismatch in Writer::tell");
+                        let output = match operation.arguments.downcast::<W>() {
+                            Ok(value) => *value,
+                            Err(_) => {
+                                return Err(AlgebraicError::TypeMismatch {
+                                    context: "Writer::tell argument",
+                                });
+                            }
+                        };
                         buffer.borrow_mut().push(output);
-                        current_computation = (operation.continuation)(Box::new(()));
+                        current_computation = Eff::<WriterEffect<W>, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(()),
+                        );
                     }
-                    _ => panic!("Unknown Writer operation: {:?}", operation.operation_tag),
+                    _ => {
+                        return Err(AlgebraicError::UnknownOperation {
+                            effect: WriterEffect::<W>::NAME,
+                            operation_tag: operation.operation_tag,
+                        });
+                    }
                 },
                 EffInner::FlatMap(_) => {
-                    unreachable!("FlatMap should be normalized by normalize()")
+                    return Err(AlgebraicError::NormalizationInvariant);
                 }
+                EffInner::Failed(error) => return Err(error),
             }
         }
     }
 }
 
 impl<W: Monoid + Clone + 'static> Handler<WriterEffect<W>> for WriterHandler<W> {
-    type Output<A> = (A, W);
+    type Output<A> = Result<(A, W), AlgebraicError>;
 
-    fn run<A: 'static>(self, computation: Eff<WriterEffect<W>, A>) -> (A, W) {
+    fn run<A: 'static>(
+        self,
+        computation: Eff<WriterEffect<W>, A>,
+    ) -> Result<(A, W), AlgebraicError> {
         let buffer = RefCell::new(Vec::new());
-        let result = Self::run_with_buffer(computation, &buffer);
-        (result, W::combine_all(buffer.into_inner()))
+        let result = Self::run_with_buffer(computation, &buffer)?;
+        Ok((result, W::combine_all(buffer.into_inner())))
     }
 }
 
@@ -207,7 +218,7 @@ impl<W: Monoid + Clone + 'static> Handler<WriterEffect<W>> for WriterHandler<W> 
 ///         .then(Eff::pure(42))
 /// );
 ///
-/// let ((result, captured_log), total_log) = handler.run(computation);
+/// let ((result, captured_log), total_log) = handler.run(computation).unwrap();
 /// assert_eq!(result, 42);
 /// assert_eq!(captured_log, "captured");
 /// assert_eq!(total_log, "captured"); // Captured log is also in total
@@ -224,10 +235,12 @@ where
 
     // Create a fresh handler to run the inner computation
     let inner_handler = WriterHandler::<W>::new();
-    let (inner_result, inner_log) = inner_handler.run(computation);
-
-    // Tell the inner log to the outer context and return the captured data
-    WriterEffect::tell(inner_log.clone()).fmap(move |()| (inner_result, inner_log))
+    match inner_handler.run(computation) {
+        Ok((inner_result, inner_log)) => {
+            WriterEffect::tell(inner_log.clone()).fmap(move |()| (inner_result, inner_log))
+        }
+        Err(error) => Eff::failed(error),
+    }
 }
 
 #[cfg(test)]
@@ -289,13 +302,38 @@ mod tests {
         let _handler = WriterHandler::<String>::default();
     }
 
+    #[rstest]
+    fn writer_tell_wrong_argument_type_returns_error() {
+        let malformed =
+            Eff::<WriterEffect<String>, ()>::perform_raw::<()>(writer_operations::TELL, 7_i32);
+        assert_eq!(
+            WriterHandler::<String>::new().run(malformed),
+            Err(AlgebraicError::TypeMismatch {
+                context: "Writer::tell argument",
+            })
+        );
+    }
+
+    #[rstest]
+    fn writer_unknown_operation_returns_error() {
+        let malformed =
+            Eff::<WriterEffect<String>, ()>::perform_raw::<()>(OperationTag::new(999), ());
+        assert!(matches!(
+            WriterHandler::<String>::new().run(malformed),
+            Err(AlgebraicError::UnknownOperation {
+                effect: "Writer",
+                ..
+            })
+        ));
+    }
+
     // tell Operation Tests
 
     #[rstest]
     fn writer_tell_appends_to_log() {
         let handler = WriterHandler::<String>::new();
         let computation = WriterEffect::tell("hello".to_string());
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(log, "hello");
     }
 
@@ -305,7 +343,7 @@ mod tests {
         let computation = WriterEffect::tell("a".to_string())
             .then(WriterEffect::tell("b".to_string()))
             .then(WriterEffect::tell("c".to_string()));
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(log, "abc");
     }
 
@@ -315,7 +353,7 @@ mod tests {
         let computation = WriterEffect::tell(vec!["step1".to_string()])
             .then(WriterEffect::tell(vec!["step2".to_string()]))
             .then(WriterEffect::tell(vec!["step3".to_string()]));
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(
             log,
             vec![
@@ -330,7 +368,7 @@ mod tests {
     fn writer_tell_empty() {
         let handler = WriterHandler::<String>::new();
         let computation = WriterEffect::tell(String::new());
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(log, "");
     }
 
@@ -340,7 +378,7 @@ mod tests {
     fn writer_listen_captures_inner_log() {
         let handler = WriterHandler::<String>::new();
         let computation = listen(WriterEffect::tell("inner".to_string()).then(Eff::pure(42)));
-        let ((result, inner_log), total_log) = handler.run(computation);
+        let ((result, inner_log), total_log) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(inner_log, "inner");
         assert_eq!(total_log, "inner");
@@ -354,7 +392,7 @@ mod tests {
                 .then(WriterEffect::tell("b".to_string()))
                 .then(Eff::pure(100)),
         );
-        let ((result, inner_log), total_log) = handler.run(computation);
+        let ((result, inner_log), total_log) = handler.run(computation).unwrap();
         assert_eq!(result, 100);
         assert_eq!(inner_log, "ab");
         assert_eq!(total_log, "ab");
@@ -364,7 +402,7 @@ mod tests {
     fn writer_listen_pure_has_empty_log() {
         let handler = WriterHandler::<String>::new();
         let computation = listen(Eff::<WriterEffect<String>, i32>::pure(42));
-        let ((result, inner_log), total_log) = handler.run(computation);
+        let ((result, inner_log), total_log) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(inner_log, "");
         assert_eq!(total_log, "");
@@ -377,7 +415,7 @@ mod tests {
             .flat_map(|(result, inner_log)| {
                 WriterEffect::tell(" outer".to_string()).fmap(move |_| (result, inner_log))
             });
-        let ((result, inner_log), total_log) = handler.run(computation);
+        let ((result, inner_log), total_log) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(inner_log, "inner");
         assert_eq!(total_log, "inner outer");
@@ -387,7 +425,7 @@ mod tests {
     fn writer_tell_then_pure() {
         let handler = WriterHandler::<String>::new();
         let computation = WriterEffect::tell("log".to_string()).then(Eff::pure(42));
-        let (result, log) = handler.run(computation);
+        let (result, log) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(log, "log");
     }
@@ -396,7 +434,7 @@ mod tests {
     fn writer_pure_value_has_empty_log() {
         let handler = WriterHandler::<String>::new();
         let computation: Eff<WriterEffect<String>, i32> = Eff::pure(42);
-        let (result, log) = handler.run(computation);
+        let (result, log) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(log, "");
     }
@@ -407,7 +445,7 @@ mod tests {
         let computation = WriterEffect::tell("log".to_string())
             .then(Eff::pure(21))
             .fmap(|x| x * 2);
-        let (result, log) = handler.run(computation);
+        let (result, log) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(log, "log");
     }
@@ -425,7 +463,7 @@ mod tests {
             .flat_map(|x| log_step("Processing").fmap(move |_| x * 2))
             .flat_map(|x| log_step("Finishing").fmap(move |_| x));
 
-        let (result, log) = handler.run(computation);
+        let (result, log) = handler.run(computation).unwrap();
         assert_eq!(result, 20);
         assert_eq!(
             log,
@@ -445,7 +483,7 @@ mod tests {
             let index_copy = index;
             computation = computation.then(WriterEffect::tell(vec![index_copy]));
         }
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(log.len(), 1000);
         assert_eq!(log[0], 0);
         assert_eq!(log[999], 999);
@@ -459,7 +497,7 @@ mod tests {
             computation =
                 computation.flat_map(|x| WriterEffect::tell(vec![x]).fmap(move |_| x + 1));
         }
-        let (result, log) = handler.run(computation);
+        let (result, log) = handler.run(computation).unwrap();
         assert_eq!(result, 1000);
         assert_eq!(log.len(), 1000);
     }
@@ -469,7 +507,7 @@ mod tests {
         let handler = WriterHandler::<String>::new();
         let computation =
             WriterEffect::tell(String::empty()).then(WriterEffect::tell("test".to_string()));
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(log, "test");
     }
 
@@ -480,8 +518,8 @@ mod tests {
             WriterEffect::tell("a".to_string()).then(WriterEffect::tell("b".to_string()));
         let computation2 =
             WriterEffect::tell("b".to_string()).then(WriterEffect::tell("a".to_string()));
-        let ((), log1) = handler.clone().run(computation1);
-        let ((), log2) = handler.run(computation2);
+        let ((), log1) = handler.clone().run(computation1).unwrap();
+        let ((), log2) = handler.run(computation2).unwrap();
         assert_eq!(log1, "ab");
         assert_eq!(log2, "ba");
         assert_ne!(log1, log2);
@@ -493,7 +531,7 @@ mod tests {
         let computation = (0..1000).fold(Eff::pure(()), |computation, index| {
             computation.then(WriterEffect::tell(vec![index]))
         });
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
 
         let expected: Vec<i32> = (0..1000).collect();
         assert_eq!(log, expected);
@@ -507,7 +545,7 @@ mod tests {
             .then(WriterEffect::tell("second".to_string()))
             .then(WriterEffect::tell("-".to_string()))
             .then(WriterEffect::tell("third".to_string()));
-        let ((), log) = handler.run(computation);
+        let ((), log) = handler.run(computation).unwrap();
         assert_eq!(log, "first-second-third");
     }
 }
@@ -527,7 +565,7 @@ mod property_tests {
                 Eff::pure(()),
                 |computation, &value| computation.then(WriterEffect::tell(vec![value]))
             );
-            let ((), log) = handler.run(computation);
+            let ((), log) = handler.run(computation).unwrap();
             prop_assert_eq!(log, tells);
         }
 
@@ -542,7 +580,7 @@ mod property_tests {
                 Eff::pure(()),
                 |computation, part| computation.then(WriterEffect::tell(part.clone()))
             );
-            let ((), log) = handler.run(computation);
+            let ((), log) = handler.run(computation).unwrap();
 
             let expected = String::combine_all(parts);
             prop_assert_eq!(log, expected);

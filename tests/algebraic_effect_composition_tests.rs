@@ -182,7 +182,7 @@ fn reader_effect_with_fmap_through_row() {
     let injected: Eff<Row, i32> = <Row as Member<ReaderEffect<i32>, Here>>::inject(original);
     let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(injected).unwrap();
 
-    let result = ReaderHandler::new(21).run(projected);
+    let result = ReaderHandler::new(21).run(projected).unwrap();
     assert_eq!(result, 42);
 }
 
@@ -194,7 +194,7 @@ fn state_effect_with_modify_through_row() {
     let injected: Eff<Row, i32> = <Row as Member<StateEffect<i32>, There<Here>>>::inject(state_eff);
     let projected = <Row as Member<StateEffect<i32>, There<Here>>>::project(injected).unwrap();
 
-    let (result, final_state) = StateHandler::new(5).run(projected);
+    let (result, final_state) = StateHandler::new(5).run(projected).unwrap();
     assert_eq!(result, 15);
     assert_eq!(final_state, 15);
 }
@@ -207,12 +207,13 @@ fn state_effect_with_modify_through_row() {
 fn sequential_reader_then_state() {
     // Simulate handling multiple effects by running handlers sequentially
     // First, run a reader computation
-    let reader_result = ReaderHandler::new(10).run(ReaderEffect::<i32>::ask().fmap(|x| x * 2));
+    let reader_result = ReaderHandler::new(10).run(ReaderEffect::<i32>::ask().fmap(|x| x * 2)).unwrap();
     assert_eq!(reader_result, 20);
 
     // Then, use the result in a state computation
     let (state_result, final_state) = StateHandler::new(reader_result)
-        .run(StateEffect::<i32>::modify(|x| x + 5).then(StateEffect::get()));
+        .run(StateEffect::<i32>::modify(|x| x + 5).then(StateEffect::get()))
+        .unwrap();
     assert_eq!(state_result, 25);
     assert_eq!(final_state, 25);
 }
@@ -222,14 +223,19 @@ fn composed_handler_sequential_run() {
     let composed = ComposedHandler::new(ReaderHandler::new(10), StateHandler::new(0));
 
     // Run reader first
-    let reader_result = composed.first().clone().run(ReaderEffect::<i32>::ask());
+    let reader_result = composed
+        .first()
+        .clone()
+        .run(ReaderEffect::<i32>::ask())
+        .unwrap();
     assert_eq!(reader_result, 10);
 
     // Run state with reader result
     let (state_result, final_state) = composed
         .second()
         .clone()
-        .run(StateEffect::<i32>::modify(move |x| x + reader_result).then(StateEffect::get()));
+        .run(StateEffect::<i32>::modify(move |x| x + reader_result).then(StateEffect::get()))
+        .unwrap();
     assert_eq!(state_result, 10);
     assert_eq!(final_state, 10);
 }
@@ -273,7 +279,7 @@ fn deep_inject_project_chain_is_stack_safe() {
     let injected: Eff<Row, i32> = <Row as Member<ReaderEffect<i32>, Here>>::inject(computation);
     let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(injected).unwrap();
 
-    let result = ReaderHandler::new(0).run(projected);
+    let result = ReaderHandler::new(0).run(projected).unwrap();
     assert_eq!(result, 100);
 }
 
@@ -297,6 +303,6 @@ fn pure_computation_through_row_preserves_value() {
     let injected: Eff<Row, String> = <Row as Member<ReaderEffect<i32>, Here>>::inject(pure_eff);
     let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(injected).unwrap();
 
-    let result = ReaderHandler::new(0).run(projected);
+    let result = ReaderHandler::new(0).run(projected).unwrap();
     assert_eq!(result, "hello");
 }

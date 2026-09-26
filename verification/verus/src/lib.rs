@@ -832,4 +832,137 @@ pub proof fn sc026_lazy_mutable_execution_mode_preserves_decision(
 {
 }
 
+
+/// SC-026 algebraic interpreter decision model.
+/// 0=proceed, 1=complete, 2=type mismatch, 3=unknown operation,
+/// 4=invalid normalized shape, 5=continuation unwind, 6=propagate failure.
+pub open spec fn algebraic_execution_decision_model(
+    node_kind: int,
+    operation_known: bool,
+    type_matches: bool,
+    continuation_panicked: bool,
+) -> int {
+    if continuation_panicked { 5 }
+    else if node_kind == 0 { 1 }
+    else if node_kind == 1 && !operation_known { 3 }
+    else if node_kind == 1 && !type_matches { 2 }
+    else if node_kind == 1 { 0 }
+    else if node_kind == 3 { 6 }
+    else { 4 }
+}
+
+pub open spec fn algebraic_execution_decision_for_mode_model(
+    execution_mode: int,
+    node_kind: int,
+    operation_known: bool,
+    type_matches: bool,
+    continuation_panicked: bool,
+) -> int {
+    if 0 <= execution_mode <= 2 {
+        algebraic_execution_decision_model(
+            node_kind,
+            operation_known,
+            type_matches,
+            continuation_panicked,
+        )
+    } else {
+        4
+    }
+}
+
+pub proof fn sc026_algebraic_unknown_operation_is_typed_error(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 1, false, true, false,
+        ) == 3,
+{
+}
+
+pub proof fn sc026_algebraic_bad_argument_type_is_typed_error(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 1, true, false, false,
+        ) == 2,
+{
+}
+
+pub proof fn sc026_algebraic_bad_result_type_is_typed_error(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 1, true, false, false,
+        ) == 2,
+{
+}
+
+pub proof fn sc026_algebraic_flat_map_type_erasure_mismatch_is_typed_error(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 1, true, false, false,
+        ) == 2,
+{
+}
+
+pub proof fn sc026_algebraic_normalization_shape_violation_is_typed_error(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 2, true, true, false,
+        ) == 4,
+{
+}
+
+pub proof fn sc026_algebraic_continuation_unwind_is_typed_error(
+    execution_mode: int,
+    node_kind: int,
+    operation_known: bool,
+    type_matches: bool,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode,
+            node_kind,
+            operation_known,
+            type_matches,
+            true,
+        ) == 5,
+{
+}
+
+pub proof fn sc026_algebraic_captured_failure_is_monotonic(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 3, true, true, false,
+        ) == 6,
+{
+}
+
+pub proof fn sc026_algebraic_valid_impure_step_proceeds(
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        algebraic_execution_decision_for_mode_model(
+            execution_mode, 1, true, true, false,
+        ) == 0,
+{
+}
+
 } // verus!

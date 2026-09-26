@@ -28,7 +28,7 @@
 //!
 //! // Pure computation using Eff
 //! let computation: Eff<NoEffect, i32> = Eff::pure(42);
-//! let result = PureHandler.run(computation);
+//! let result = PureHandler.run(computation).unwrap();
 //! assert_eq!(result, 42);
 //! ```
 //!
@@ -57,7 +57,10 @@ mod row;
 mod state;
 mod writer;
 
-pub use eff::{Eff, OperationTag};
+pub use eff::{
+    AlgebraicError, AlgebraicExecutionDecision, Eff, OperationTag,
+    algebraic_execution_decision,
+};
 pub use effect::{Effect, NoEffect};
 pub use error::{ErrorEffect, ErrorHandler, attempt, catch};
 pub use handler::{ComposedHandler, Handler, PureHandler};

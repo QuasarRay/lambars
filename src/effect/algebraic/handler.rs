@@ -9,12 +9,11 @@
 //! use lambars::effect::algebraic::{Eff, NoEffect, PureHandler, Handler};
 //!
 //! let computation = Eff::<NoEffect, i32>::pure(42);
-//! let result = PureHandler.run(computation);
+//! let result = PureHandler.run(computation).unwrap();
 //! assert_eq!(result, 42);
 //! ```
 
-use super::eff::Eff;
-use super::eff::EffInner;
+use super::eff::{AlgebraicError, Eff, EffInner};
 use super::effect::{Effect, NoEffect};
 
 /// A handler that interprets effect operations.
@@ -46,7 +45,7 @@ use super::effect::{Effect, NoEffect};
 /// use lambars::effect::algebraic::{Eff, NoEffect, Handler, PureHandler};
 ///
 /// let computation = Eff::<NoEffect, i32>::pure(42);
-/// let result = PureHandler.run(computation);
+/// let result = PureHandler.run(computation).unwrap();
 /// assert_eq!(result, 42);
 /// ```
 pub trait Handler<E: Effect>: Sized {
@@ -89,7 +88,7 @@ pub trait Handler<E: Effect>: Sized {
 /// let computation = Eff::<NoEffect, i32>::pure(42)
 ///     .fmap(|x| x * 2);
 ///
-/// let result = PureHandler.run(computation);
+/// let result = PureHandler.run(computation).unwrap();
 /// assert_eq!(result, 84);
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
@@ -105,24 +104,19 @@ impl PureHandler {
 }
 
 impl Handler<NoEffect> for PureHandler {
-    type Output<A> = A;
+    type Output<A> = Result<A, AlgebraicError>;
 
-    fn run<A: 'static>(self, computation: Eff<NoEffect, A>) -> A {
-        // Early return for Pure case (avoids normalize() overhead)
-        if let EffInner::Pure(value) = computation.inner {
-            return value;
-        }
-
+    fn run<A: 'static>(self, computation: Eff<NoEffect, A>) -> Result<A, AlgebraicError> {
         let normalized = computation.normalize();
 
         match normalized.inner {
-            EffInner::Pure(value) => value,
-            EffInner::Impure(_) => {
-                panic!("NoEffect computation should not have Impure operations")
-            }
-            EffInner::FlatMap(_) => {
-                unreachable!("FlatMap should be normalized by normalize()")
-            }
+            EffInner::Pure(value) => Ok(value),
+            EffInner::Impure(operation) => Err(AlgebraicError::UnknownOperation {
+                effect: NoEffect::NAME,
+                operation_tag: operation.operation_tag,
+            }),
+            EffInner::FlatMap(_) => Err(AlgebraicError::NormalizationInvariant),
+            EffInner::Failed(error) => Err(error),
         }
     }
 }
@@ -219,30 +213,55 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    fn pure_handler_rejects_impure_noeffect_without_panicking() {
+        let malformed =
+            Eff::<NoEffect, i32>::perform_raw::<i32>(super::super::eff::OperationTag::new(999), ());
+        let result = PureHandler.run(malformed);
+        assert!(matches!(
+            result,
+            Err(AlgebraicError::UnknownOperation {
+                effect: "NoEffect",
+                ..
+            })
+        ));
+    }
+
+    #[rstest]
+    fn pure_handler_reports_continuation_unwind() {
+        let computation = Eff::<NoEffect, i32>::pure(1).fmap(|_| -> i32 {
+            panic!("continuation panic");
+        });
+        assert_eq!(
+            PureHandler.run(computation),
+            Err(AlgebraicError::ContinuationPanicked)
+        );
+    }
+
+    #[rstest]
     fn pure_handler_extracts_pure_value() {
         let computation = Eff::<NoEffect, i32>::pure(42);
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 
     #[rstest]
     fn pure_handler_with_string() {
         let computation = Eff::<NoEffect, String>::pure("hello".to_string());
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, "hello");
     }
 
     #[rstest]
     fn pure_handler_with_complex_type() {
         let computation = Eff::<NoEffect, Vec<i32>>::pure(vec![1, 2, 3]);
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, vec![1, 2, 3]);
     }
 
     #[rstest]
     fn pure_handler_with_fmap() {
         let computation = Eff::<NoEffect, i32>::pure(21).fmap(|x| x * 2);
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -252,14 +271,14 @@ mod tests {
             .fmap(|x| x + 5)
             .fmap(|x| x * 2)
             .fmap(|x| x - 10);
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 20);
     }
 
     #[rstest]
     fn pure_handler_with_flat_map() {
         let computation = Eff::<NoEffect, i32>::pure(10).flat_map(|x| Eff::pure(x + 5));
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 15);
     }
 
@@ -269,21 +288,21 @@ mod tests {
             .flat_map(|x| Eff::pure(x + 1))
             .flat_map(|x| Eff::pure(x * 2))
             .flat_map(|x| Eff::pure(x + 10));
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 14);
     }
 
     #[rstest]
     fn pure_handler_with_and_then() {
         let computation = Eff::<NoEffect, i32>::pure(10).and_then(|x| Eff::pure(x + 5));
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 15);
     }
 
     #[rstest]
     fn pure_handler_with_then() {
         let computation = Eff::<NoEffect, i32>::pure(10).then(Eff::pure(42));
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -291,7 +310,7 @@ mod tests {
     fn pure_handler_with_map2() {
         let computation = Eff::<NoEffect, i32>::pure(10)
             .map2(Eff::pure(20), |value_a, value_b| value_a + value_b);
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 30);
     }
 
@@ -301,21 +320,21 @@ mod tests {
             .map2(Eff::pure("hello"), |number, text| {
                 format!("{number}: {text}")
             });
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, "42: hello");
     }
 
     #[rstest]
     fn pure_handler_with_product() {
         let computation = Eff::<NoEffect, i32>::pure(1).product(Eff::pure(2));
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, (1, 2));
     }
 
     #[rstest]
     fn pure_handler_with_product_different_types() {
         let computation = Eff::<NoEffect, i32>::pure(42).product(Eff::pure("hello"));
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, (42, "hello"));
     }
 
@@ -325,7 +344,7 @@ mod tests {
         for _ in 0..10000 {
             computation = computation.flat_map(|x| Eff::pure(x + 1));
         }
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 10000);
     }
 
@@ -335,7 +354,7 @@ mod tests {
         for _ in 0..10000 {
             computation = computation.fmap(|x| x + 1);
         }
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 10000);
     }
 
@@ -349,7 +368,7 @@ mod tests {
                 computation = computation.fmap(|x| x + 1);
             }
         }
-        let result = PureHandler.run(computation);
+        let result = PureHandler.run(computation).unwrap();
         assert_eq!(result, 5000);
     }
 
@@ -357,14 +376,14 @@ mod tests {
     fn eff_fmap_method() {
         let eff: Eff<NoEffect, i32> = Eff::pure(10);
         let mapped = eff.fmap(|x| x * 2);
-        let result = PureHandler.run(mapped);
+        let result = PureHandler.run(mapped).unwrap();
         assert_eq!(result, 20);
     }
 
     #[rstest]
     fn eff_pure_method() {
         let eff: Eff<NoEffect, i32> = Eff::pure(42);
-        let result = PureHandler.run(eff);
+        let result = PureHandler.run(eff).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -373,7 +392,7 @@ mod tests {
         let eff_a: Eff<NoEffect, i32> = Eff::pure(10);
         let eff_b: Eff<NoEffect, i32> = Eff::pure(20);
         let combined = eff_a.map2(eff_b, |value_a, value_b| value_a + value_b);
-        let result = PureHandler.run(combined);
+        let result = PureHandler.run(combined).unwrap();
         assert_eq!(result, 30);
     }
 
@@ -381,7 +400,7 @@ mod tests {
     fn eff_flat_map_method() {
         let eff: Eff<NoEffect, i32> = Eff::pure(10);
         let chained = eff.flat_map(|x| Eff::pure(x + 5));
-        let result = PureHandler.run(chained);
+        let result = PureHandler.run(chained).unwrap();
         assert_eq!(result, 15);
     }
 
@@ -394,8 +413,8 @@ mod tests {
         let left = Eff::<NoEffect, i32>::pure(value).flat_map(function);
         let right = function(value);
 
-        let left_result = PureHandler.run(left);
-        let right_result = PureHandler.run(right);
+        let left_result = PureHandler.run(left).unwrap();
+        let right_result = PureHandler.run(right).unwrap();
 
         assert_eq!(left_result, right_result);
         assert_eq!(left_result, 84);
@@ -406,7 +425,7 @@ mod tests {
         // m.flat_map(pure) == m
         let computation = Eff::<NoEffect, i32>::pure(42);
         let result = computation.flat_map(Eff::pure);
-        let value = PureHandler.run(result);
+        let value = PureHandler.run(result).unwrap();
         assert_eq!(value, 42);
     }
 
@@ -422,8 +441,8 @@ mod tests {
         let right =
             Eff::<NoEffect, i32>::pure(5).flat_map(move |x| function1(x).flat_map(function2));
 
-        let left_result = PureHandler.run(left);
-        let right_result = PureHandler.run(right);
+        let left_result = PureHandler.run(left).unwrap();
+        let right_result = PureHandler.run(right).unwrap();
 
         assert_eq!(left_result, right_result);
         assert_eq!(left_result, 12);
@@ -455,7 +474,7 @@ mod tests {
     fn pure_handler_is_default() {
         let handler = PureHandler::default();
         let computation = Eff::<NoEffect, i32>::pure(42);
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -463,7 +482,7 @@ mod tests {
     fn pure_handler_new_creates_handler() {
         let handler = PureHandler::new();
         let computation = Eff::<NoEffect, i32>::pure(42);
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 

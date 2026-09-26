@@ -20,12 +20,12 @@
 //!     .flat_map(|x| StateEffect::put(x + 1))
 //!     .then(StateEffect::get());
 //!
-//! let (result, final_state) = StateHandler::new(0).run(computation);
+//! let (result, final_state) = StateHandler::new(0).run(computation).unwrap();
 //! assert_eq!(result, 1);
 //! assert_eq!(final_state, 1);
 //! ```
 
-use super::eff::{Eff, EffInner, OperationTag};
+use super::eff::{AlgebraicError, Eff, EffInner, OperationTag};
 use super::effect::Effect;
 use super::handler::Handler;
 use std::cell::RefCell;
@@ -54,7 +54,7 @@ mod state_operations {
 /// let computation = StateEffect::<i32>::modify(|x| x + 1)
 ///     .then(StateEffect::get());
 ///
-/// let (result, final_state) = StateHandler::new(10).run(computation);
+/// let (result, final_state) = StateHandler::new(10).run(computation).unwrap();
 /// assert_eq!(result, 11);
 /// assert_eq!(final_state, 11);
 /// ```
@@ -74,7 +74,7 @@ impl<S: Clone + 'static> StateEffect<S> {
     /// use lambars::effect::algebraic::{StateEffect, StateHandler, Handler};
     ///
     /// let computation = StateEffect::<i32>::get();
-    /// let (result, final_state) = StateHandler::new(42).run(computation);
+    /// let (result, final_state) = StateHandler::new(42).run(computation).unwrap();
     /// assert_eq!(result, 42);
     /// assert_eq!(final_state, 42);
     /// ```
@@ -91,7 +91,7 @@ impl<S: Clone + 'static> StateEffect<S> {
     /// use lambars::effect::algebraic::{StateEffect, StateHandler, Handler};
     ///
     /// let computation = StateEffect::put(100);
-    /// let ((), final_state) = StateHandler::new(0).run(computation);
+    /// let ((), final_state) = StateHandler::new(0).run(computation).unwrap();
     /// assert_eq!(final_state, 100);
     /// ```
     pub fn put(state: S) -> Eff<Self, ()>
@@ -111,7 +111,7 @@ impl<S: Clone + 'static> StateEffect<S> {
     /// use lambars::effect::algebraic::{StateEffect, StateHandler, Handler};
     ///
     /// let computation = StateEffect::<i32>::modify(|x| x * 2);
-    /// let ((), final_state) = StateHandler::new(21).run(computation);
+    /// let ((), final_state) = StateHandler::new(21).run(computation).unwrap();
     /// assert_eq!(final_state, 42);
     /// ```
     pub fn modify<F>(modifier: F) -> Eff<Self, ()>
@@ -132,7 +132,7 @@ impl<S: Clone + 'static> StateEffect<S> {
     /// use lambars::effect::algebraic::{StateEffect, StateHandler, Handler};
     ///
     /// let computation = StateEffect::<Vec<i32>>::gets(|v| v.len());
-    /// let (result, _) = StateHandler::new(vec![1, 2, 3]).run(computation);
+    /// let (result, _) = StateHandler::new(vec![1, 2, 3]).run(computation).unwrap();
     /// assert_eq!(result, 3);
     /// ```
     pub fn gets<A: 'static, F>(projection: F) -> Eff<Self, A>
@@ -165,7 +165,7 @@ impl<S: Clone + 'static> StateEffect<S> {
 ///     .then(StateEffect::modify(|x| x + 1))
 ///     .then(StateEffect::get());
 ///
-/// let (result, final_state) = handler.run(computation);
+/// let (result, final_state) = handler.run(computation).unwrap();
 /// assert_eq!(result, 2);
 /// assert_eq!(final_state, 2);
 /// ```
@@ -199,51 +199,66 @@ impl<S: Clone + 'static> StateHandler<S> {
     ///
     /// Uses an iterative approach for stack safety.
     #[inline]
-    fn run_with_state<A: 'static>(computation: Eff<StateEffect<S>, A>, state: &RefCell<S>) -> A {
-        // Early return for Pure case (avoids normalize() overhead)
-        if let EffInner::Pure(value) = computation.inner {
-            return value;
-        }
-
+    fn run_with_state<A: 'static>(
+        computation: Eff<StateEffect<S>, A>,
+        state: &RefCell<S>,
+    ) -> Result<A, AlgebraicError> {
         let mut current_computation = computation;
 
         loop {
             let normalized = current_computation.normalize();
 
             match normalized.inner {
-                EffInner::Pure(value) => return value,
+                EffInner::Pure(value) => return Ok(value),
                 EffInner::Impure(operation) => match operation.operation_tag {
                     state_operations::GET => {
                         let current = state.borrow().clone();
-                        let continuation = operation.continuation;
-                        current_computation = continuation(Box::new(current));
+                        current_computation = Eff::<StateEffect<S>, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(current),
+                        );
                     }
                     state_operations::PUT => {
-                        let new_state = *operation
-                            .arguments
-                            .downcast::<S>()
-                            .expect("Type mismatch in State::put");
+                        let new_state = match operation.arguments.downcast::<S>() {
+                            Ok(value) => *value,
+                            Err(_) => {
+                                return Err(AlgebraicError::TypeMismatch {
+                                    context: "State::put argument",
+                                });
+                            }
+                        };
                         *state.borrow_mut() = new_state;
-                        let continuation = operation.continuation;
-                        current_computation = continuation(Box::new(()));
+                        current_computation = Eff::<StateEffect<S>, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(()),
+                        );
                     }
-                    _ => panic!("Unknown State operation: {:?}", operation.operation_tag),
+                    _ => {
+                        return Err(AlgebraicError::UnknownOperation {
+                            effect: StateEffect::<S>::NAME,
+                            operation_tag: operation.operation_tag,
+                        });
+                    }
                 },
                 EffInner::FlatMap(_) => {
-                    unreachable!("FlatMap should be normalized by normalize()")
+                    return Err(AlgebraicError::NormalizationInvariant);
                 }
+                EffInner::Failed(error) => return Err(error),
             }
         }
     }
 }
 
 impl<S: Clone + 'static> Handler<StateEffect<S>> for StateHandler<S> {
-    type Output<A> = (A, S);
+    type Output<A> = Result<(A, S), AlgebraicError>;
 
-    fn run<A: 'static>(self, computation: Eff<StateEffect<S>, A>) -> (A, S) {
+    fn run<A: 'static>(
+        self,
+        computation: Eff<StateEffect<S>, A>,
+    ) -> Result<(A, S), AlgebraicError> {
         let state = RefCell::new(self.initial_state);
-        let result = Self::run_with_state(computation, &state);
-        (result, state.into_inner())
+        let result = Self::run_with_state(computation, &state)?;
+        Ok((result, state.into_inner()))
     }
 }
 
@@ -302,12 +317,37 @@ mod tests {
         assert_eq!(*cloned.initial_state(), 42);
     }
 
+    #[rstest]
+    fn state_put_wrong_argument_type_returns_error() {
+        let malformed =
+            Eff::<StateEffect<i32>, ()>::perform_raw::<()>(state_operations::PUT, "wrong");
+        assert_eq!(
+            StateHandler::new(0).run(malformed),
+            Err(AlgebraicError::TypeMismatch {
+                context: "State::put argument",
+            })
+        );
+    }
+
+    #[rstest]
+    fn state_unknown_operation_returns_error() {
+        let malformed =
+            Eff::<StateEffect<i32>, i32>::perform_raw::<i32>(OperationTag::new(999), ());
+        assert!(matches!(
+            StateHandler::new(0).run(malformed),
+            Err(AlgebraicError::UnknownOperation {
+                effect: "State",
+                ..
+            })
+        ));
+    }
+
     // get Operation Tests
 
     #[rstest]
     fn state_get_returns_current_state() {
         let handler = StateHandler::new(42);
-        let (result, final_state) = handler.run(StateEffect::<i32>::get());
+        let (result, final_state) = handler.run(StateEffect::<i32>::get()).unwrap();
         assert_eq!(result, 42);
         assert_eq!(final_state, 42);
     }
@@ -315,7 +355,7 @@ mod tests {
     #[rstest]
     fn state_get_with_string() {
         let handler = StateHandler::new("hello".to_string());
-        let (result, final_state) = handler.run(StateEffect::<String>::get());
+        let (result, final_state) = handler.run(StateEffect::<String>::get()).unwrap();
         assert_eq!(result, "hello");
         assert_eq!(final_state, "hello");
     }
@@ -333,7 +373,7 @@ mod tests {
             name: "test".to_string(),
         };
         let handler = StateHandler::new(initial.clone());
-        let (result, final_state) = handler.run(StateEffect::<AppState>::get());
+        let (result, final_state) = handler.run(StateEffect::<AppState>::get()).unwrap();
         assert_eq!(result, initial);
         assert_eq!(final_state, initial);
     }
@@ -343,14 +383,14 @@ mod tests {
     #[rstest]
     fn state_put_changes_state() {
         let handler = StateHandler::new(0);
-        let ((), final_state) = handler.run(StateEffect::put(100));
+        let ((), final_state) = handler.run(StateEffect::put(100)).unwrap();
         assert_eq!(final_state, 100);
     }
 
     #[rstest]
     fn state_put_with_string() {
         let handler = StateHandler::new("initial".to_string());
-        let ((), final_state) = handler.run(StateEffect::put("updated".to_string()));
+        let ((), final_state) = handler.run(StateEffect::put("updated".to_string())).unwrap();
         assert_eq!(final_state, "updated");
     }
 
@@ -360,7 +400,7 @@ mod tests {
         let computation = StateEffect::put(1)
             .then(StateEffect::put(2))
             .then(StateEffect::put(3));
-        let ((), final_state) = handler.run(computation);
+        let ((), final_state) = handler.run(computation).unwrap();
         assert_eq!(final_state, 3);
     }
 
@@ -369,7 +409,7 @@ mod tests {
     #[rstest]
     fn state_modify_transforms_state() {
         let handler = StateHandler::new(10);
-        let ((), final_state) = handler.run(StateEffect::modify(|x: i32| x * 2));
+        let ((), final_state) = handler.run(StateEffect::modify(|x: i32| x * 2)).unwrap();
         assert_eq!(final_state, 20);
     }
 
@@ -380,7 +420,7 @@ mod tests {
             v.push(4);
             v
         });
-        let ((), final_state) = handler.run(computation);
+        let ((), final_state) = handler.run(computation).unwrap();
         assert_eq!(final_state, vec![1, 2, 3, 4]);
     }
 
@@ -390,7 +430,7 @@ mod tests {
         let computation = StateEffect::modify(|x: i32| x + 1)
             .then(StateEffect::modify(|x: i32| x * 2))
             .then(StateEffect::modify(|x: i32| x + 10));
-        let ((), final_state) = handler.run(computation);
+        let ((), final_state) = handler.run(computation).unwrap();
         assert_eq!(final_state, 14); // ((1 + 1) * 2) + 10
     }
 
@@ -399,7 +439,7 @@ mod tests {
     #[rstest]
     fn state_gets_projects_state() {
         let handler = StateHandler::new(vec![1, 2, 3, 4, 5]);
-        let (result, _) = handler.run(StateEffect::gets(|v: &Vec<i32>| v.len()));
+        let (result, _) = handler.run(StateEffect::gets(|v: &Vec<i32>| v.len())).unwrap();
         assert_eq!(result, 5);
     }
 
@@ -411,7 +451,7 @@ mod tests {
         }
 
         let handler = StateHandler::new(Config { value: 42 });
-        let (result, _) = handler.run(StateEffect::gets(|c: &Config| c.value));
+        let (result, _) = handler.run(StateEffect::gets(|c: &Config| c.value)).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -419,7 +459,7 @@ mod tests {
     fn state_get_then_put() {
         let handler = StateHandler::new(10);
         let computation = StateEffect::<i32>::get().flat_map(|x| StateEffect::put(x + 5));
-        let ((), final_state) = handler.run(computation);
+        let ((), final_state) = handler.run(computation).unwrap();
         assert_eq!(final_state, 15);
     }
 
@@ -427,7 +467,7 @@ mod tests {
     fn state_put_then_get() {
         let handler = StateHandler::new(0);
         let computation = StateEffect::put(42).then(StateEffect::get());
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(final_state, 42);
     }
@@ -442,7 +482,7 @@ mod tests {
             .then(increment())
             .then(StateEffect::get());
 
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, 3);
         assert_eq!(final_state, 3);
     }
@@ -465,7 +505,7 @@ mod tests {
         }))
         .then(StateEffect::get());
 
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, vec![1, 2, 3]);
         assert_eq!(final_state, vec![1, 2, 3]);
     }
@@ -474,7 +514,7 @@ mod tests {
     fn state_pure_value_does_not_change_state() {
         let handler = StateHandler::new(42);
         let computation: Eff<StateEffect<i32>, &str> = Eff::pure("constant");
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, "constant");
         assert_eq!(final_state, 42);
     }
@@ -485,7 +525,7 @@ mod tests {
         let computation = StateEffect::<i32>::get()
             .flat_map(|a| StateEffect::put(a + 10).then(StateEffect::get()))
             .flat_map(|b| StateEffect::put(b * 2).then(StateEffect::get()));
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, 20); // (0 + 10) * 2
         assert_eq!(final_state, 20);
     }
@@ -494,7 +534,7 @@ mod tests {
     fn state_fmap_transforms_result() {
         let handler = StateHandler::new(21);
         let computation = StateEffect::<i32>::get().fmap(|x| x * 2);
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, 42);
         assert_eq!(final_state, 21); // State unchanged by fmap
     }
@@ -506,7 +546,7 @@ mod tests {
         for _ in 0..1000 {
             computation = computation.then(StateEffect::modify(|x: i32| x + 1));
         }
-        let ((), final_state) = handler.run(computation);
+        let ((), final_state) = handler.run(computation).unwrap();
         assert_eq!(final_state, 1000);
     }
 
@@ -518,7 +558,7 @@ mod tests {
             computation = computation
                 .flat_map(|_| StateEffect::modify(|x: i32| x + 1).then(StateEffect::get()));
         }
-        let (result, final_state) = handler.run(computation);
+        let (result, final_state) = handler.run(computation).unwrap();
         assert_eq!(result, 1000);
         assert_eq!(final_state, 1000);
     }
@@ -547,7 +587,7 @@ mod tests {
             .then(pop())
             .flat_map(|popped| StateEffect::get().fmap(move |stack| (popped, stack)));
 
-        let ((popped, remaining_stack), final_state) = handler.run(computation);
+        let ((popped, remaining_stack), final_state) = handler.run(computation).unwrap();
         assert_eq!(popped, Some(3));
         assert_eq!(remaining_stack, vec![1, 2]);
         assert_eq!(final_state, vec![1, 2]);

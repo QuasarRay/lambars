@@ -549,43 +549,65 @@ mod tests {
         fn run<A: 'static>(
             &self,
             computation: crate::effect::algebraic::Eff<TestableCounterEffect, A>,
-        ) -> A {
+        ) -> Result<A, crate::effect::algebraic::AlgebraicError> {
             use crate::effect::algebraic::eff::EffInner;
+            use crate::effect::algebraic::{AlgebraicError, Effect};
 
             let normalized = computation.normalize();
 
             match normalized.inner {
-                EffInner::Pure(value) => value,
+                EffInner::Pure(value) => Ok(value),
                 EffInner::Impure(operation) => {
-                    // Dispatch based on operation tag
-                    if operation.operation_tag == *__testable_counter_operations::INCREMENT_TAG {
+                    let next = if operation.operation_tag
+                        == *__testable_counter_operations::INCREMENT_TAG
+                    {
                         *self.counter.borrow_mut() += 1;
-                        let next = (operation.continuation)(Box::new(()));
-                        self.run(next)
+                        crate::effect::algebraic::Eff::<TestableCounterEffect, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(()),
+                        )
                     } else if operation.operation_tag
                         == *__testable_counter_operations::DECREMENT_TAG
                     {
                         *self.counter.borrow_mut() -= 1;
-                        let next = (operation.continuation)(Box::new(()));
-                        self.run(next)
+                        crate::effect::algebraic::Eff::<TestableCounterEffect, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(()),
+                        )
                     } else if operation.operation_tag
                         == *__testable_counter_operations::GET_VALUE_TAG
                     {
                         let value = *self.counter.borrow();
-                        let next = (operation.continuation)(Box::new(value));
-                        self.run(next)
-                    } else if operation.operation_tag == *__testable_counter_operations::RESET_TAG {
-                        let new_value = *operation.arguments.downcast::<(i32,)>().unwrap();
+                        crate::effect::algebraic::Eff::<TestableCounterEffect, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(value),
+                        )
+                    } else if operation.operation_tag
+                        == *__testable_counter_operations::RESET_TAG
+                    {
+                        let new_value = match operation.arguments.downcast::<(i32,)>() {
+                            Ok(value) => *value,
+                            Err(_) => {
+                                return Err(AlgebraicError::TypeMismatch {
+                                    context: "TestableCounter::reset argument",
+                                });
+                            }
+                        };
                         *self.counter.borrow_mut() = new_value.0;
-                        let next = (operation.continuation)(Box::new(()));
-                        self.run(next)
+                        crate::effect::algebraic::Eff::<TestableCounterEffect, A>::invoke_continuation(
+                            operation.continuation,
+                            Box::new(()),
+                        )
                     } else {
-                        panic!("Unknown TestableCounter operation");
-                    }
+                        return Err(AlgebraicError::UnknownOperation {
+                            effect: TestableCounterEffect::NAME,
+                            operation_tag: operation.operation_tag,
+                        });
+                    };
+                    self.run(next)
                 }
-                EffInner::FlatMap(_) => {
-                    unreachable!("FlatMap should be normalized")
-                }
+                EffInner::FlatMap(_) => Err(AlgebraicError::NormalizationInvariant),
+                EffInner::Failed(error) => Err(error),
             }
         }
 
@@ -598,7 +620,7 @@ mod tests {
     fn defined_effect_can_be_handled() {
         let handler = TestableCounterHandlerImpl::new(0);
         let computation = TestableCounterEffect::get_value();
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 0);
     }
 
@@ -607,7 +629,7 @@ mod tests {
         let handler = TestableCounterHandlerImpl::new(0);
         let computation =
             TestableCounterEffect::increment().then(TestableCounterEffect::get_value());
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 1);
     }
 
@@ -616,7 +638,7 @@ mod tests {
         let handler = TestableCounterHandlerImpl::new(10);
         let computation =
             TestableCounterEffect::decrement().then(TestableCounterEffect::get_value());
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 9);
     }
 
@@ -625,7 +647,7 @@ mod tests {
         let handler = TestableCounterHandlerImpl::new(0);
         let computation =
             TestableCounterEffect::reset(100).then(TestableCounterEffect::get_value());
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 100);
     }
 
@@ -637,7 +659,7 @@ mod tests {
             .then(TestableCounterEffect::increment())
             .then(TestableCounterEffect::decrement())
             .then(TestableCounterEffect::get_value());
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 2); // 0 + 1 + 1 + 1 - 1 = 2
     }
 
@@ -647,7 +669,7 @@ mod tests {
         let computation = TestableCounterEffect::get_value().flat_map(|current| {
             TestableCounterEffect::reset(current * 2).then(TestableCounterEffect::get_value())
         });
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 10); // 5 * 2 = 10
     }
 
@@ -655,7 +677,7 @@ mod tests {
     fn defined_effect_with_fmap() {
         let handler = TestableCounterHandlerImpl::new(42);
         let computation = TestableCounterEffect::get_value().fmap(|x| x * 2);
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 84);
     }
 
@@ -665,7 +687,7 @@ mod tests {
         let computation = TestableCounterEffect::increment()
             .then(TestableCounterEffect::increment())
             .then(TestableCounterEffect::increment());
-        handler.run(computation);
+        handler.run(computation).unwrap();
         assert_eq!(handler.get_final_value(), 3);
     }
 
@@ -684,7 +706,7 @@ mod tests {
                 TestableCounterEffect::reset(count * 10).then(TestableCounterEffect::get_value())
             });
 
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 50); // 5 * 10 = 50
         assert_eq!(handler.get_final_value(), 50);
     }

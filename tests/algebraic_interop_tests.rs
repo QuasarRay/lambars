@@ -32,7 +32,7 @@ mod into_eff_tests {
         let reader: Reader<i32, i32> = Reader::new(|environment| environment * 2);
         let eff = reader.into_eff();
 
-        let result = ReaderHandler::new(21).run(eff);
+        let result = ReaderHandler::new(21).run(eff).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -41,7 +41,7 @@ mod into_eff_tests {
         let reader: Reader<String, usize> = Reader::asks(|s: String| s.len());
         let eff = reader.into_eff();
 
-        let result = ReaderHandler::new("hello world".to_string()).run(eff);
+        let result = ReaderHandler::new("hello world".to_string()).run(eff).unwrap();
         assert_eq!(result, 11);
     }
 
@@ -50,7 +50,7 @@ mod into_eff_tests {
         let reader: Reader<i32, &str> = Reader::pure("constant");
         let eff = reader.into_eff();
 
-        let result = ReaderHandler::new(999).run(eff);
+        let result = ReaderHandler::new(999).run(eff).unwrap();
         assert_eq!(result, "constant");
     }
 
@@ -59,7 +59,7 @@ mod into_eff_tests {
         let reader: Reader<i32, i32> = Reader::ask().flat_map(|x| Reader::new(move |y| x + y + 5));
         let eff = reader.into_eff();
 
-        let result = ReaderHandler::new(10).run(eff);
+        let result = ReaderHandler::new(10).run(eff).unwrap();
         assert_eq!(result, 25); // 10 + 10 + 5
     }
 
@@ -69,7 +69,7 @@ mod into_eff_tests {
         let reader = Reader::local(|x: i32| x * 2, inner);
         let eff = reader.into_eff();
 
-        let result = ReaderHandler::new(21).run(eff);
+        let result = ReaderHandler::new(21).run(eff).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -89,7 +89,7 @@ mod into_eff_tests {
             port: 8080,
             host: "localhost".to_string(),
         };
-        let result = ReaderHandler::new(config).run(eff);
+        let result = ReaderHandler::new(config).run(eff).unwrap();
         assert_eq!(result, "localhost:8080");
     }
 }
@@ -107,7 +107,7 @@ mod mtl_reader_tests {
         let computation: Eff<Row, i32> = ask::<i32, Row, Here>();
 
         let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(computation).unwrap();
-        let result = ReaderHandler::new(42).run(projected);
+        let result = ReaderHandler::new(42).run(projected).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -117,7 +117,7 @@ mod mtl_reader_tests {
         let computation: Eff<Row, usize> = asks::<String, usize, Row, Here, _>(|s: String| s.len());
 
         let projected = <Row as Member<ReaderEffect<String>, Here>>::project(computation).unwrap();
-        let result = ReaderHandler::new("hello".to_string()).run(projected);
+        let result = ReaderHandler::new("hello".to_string()).run(projected).unwrap();
         assert_eq!(result, 5);
     }
 
@@ -129,7 +129,7 @@ mod mtl_reader_tests {
 
         // Project and run
         let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(computation).unwrap();
-        let result = ReaderHandler::new(100).run(projected);
+        let result = ReaderHandler::new(100).run(projected).unwrap();
         assert_eq!(result, 100);
     }
 
@@ -141,7 +141,7 @@ mod mtl_reader_tests {
 
         let projected =
             <Row as Member<ReaderEffect<i32>, There<Here>>>::project(computation).unwrap();
-        let result = ReaderHandler::new(50).run(projected);
+        let result = ReaderHandler::new(50).run(projected).unwrap();
         assert_eq!(result, 50);
     }
 
@@ -164,7 +164,7 @@ mod mtl_reader_tests {
         };
         let projected =
             <Row as Member<ReaderEffect<AppConfig>, Here>>::project(computation).unwrap();
-        let result = ReaderHandler::new(config).run(projected);
+        let result = ReaderHandler::new(config).run(projected).unwrap();
         assert_eq!(result, 100);
     }
 }
@@ -182,7 +182,7 @@ mod mtl_state_tests {
         let computation: Eff<Row, i32> = get::<i32, Row, Here>();
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let (result, final_state) = StateHandler::new(42).run(projected);
+        let (result, final_state) = StateHandler::new(42).run(projected).unwrap();
         assert_eq!(result, 42);
         assert_eq!(final_state, 42);
     }
@@ -193,7 +193,7 @@ mod mtl_state_tests {
         let computation: Eff<Row, ()> = put::<i32, Row, Here>(100);
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let ((), final_state) = StateHandler::new(0).run(projected);
+        let ((), final_state) = StateHandler::new(0).run(projected).unwrap();
         assert_eq!(final_state, 100);
     }
 
@@ -203,7 +203,7 @@ mod mtl_state_tests {
         let computation: Eff<Row, ()> = modify::<i32, Row, Here, _>(|x: i32| x * 2);
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let ((), final_state) = StateHandler::new(21).run(projected);
+        let ((), final_state) = StateHandler::new(21).run(projected).unwrap();
         assert_eq!(final_state, 42);
     }
 
@@ -214,7 +214,7 @@ mod mtl_state_tests {
             gets::<Vec<i32>, usize, Row, Here, _>(|v: &Vec<i32>| v.len());
 
         let projected = <Row as Member<StateEffect<Vec<i32>>, Here>>::project(computation).unwrap();
-        let (result, _) = StateHandler::new(vec![1, 2, 3, 4, 5]).run(projected);
+        let (result, _) = StateHandler::new(vec![1, 2, 3, 4, 5]).run(projected).unwrap();
         assert_eq!(result, 5);
     }
 
@@ -226,7 +226,7 @@ mod mtl_state_tests {
 
         let projected =
             <Row as Member<StateEffect<i32>, There<Here>>>::project(computation).unwrap();
-        let ((), final_state) = StateHandler::new(0).run(projected);
+        let ((), final_state) = StateHandler::new(0).run(projected).unwrap();
         assert_eq!(final_state, 42);
     }
 
@@ -238,7 +238,7 @@ mod mtl_state_tests {
             .then(get::<i32, Row, Here>());
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let (result, final_state) = StateHandler::new(5).run(projected);
+        let (result, final_state) = StateHandler::new(5).run(projected).unwrap();
         assert_eq!(result, 15);
         assert_eq!(final_state, 15);
     }
@@ -254,7 +254,7 @@ mod mtl_state_tests {
             .then(get::<i32, Row, Here>());
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let (result, final_state) = StateHandler::new(0).run(projected);
+        let (result, final_state) = StateHandler::new(0).run(projected).unwrap();
         assert_eq!(result, 3);
         assert_eq!(final_state, 3);
     }
@@ -273,7 +273,7 @@ mod mtl_writer_tests {
         let computation: Eff<Row, ()> = tell::<String, Row, Here>("hello".to_string());
 
         let projected = <Row as Member<WriterEffect<String>, Here>>::project(computation).unwrap();
-        let ((), log) = WriterHandler::new().run(projected);
+        let ((), log) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(log, "hello");
     }
 
@@ -285,7 +285,7 @@ mod mtl_writer_tests {
             .then(tell::<String, Row, Here>("c".to_string()));
 
         let projected = <Row as Member<WriterEffect<String>, Here>>::project(computation).unwrap();
-        let ((), log) = WriterHandler::new().run(projected);
+        let ((), log) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(log, "abc");
     }
 
@@ -298,7 +298,7 @@ mod mtl_writer_tests {
 
         let projected =
             <Row as Member<WriterEffect<Vec<String>>, Here>>::project(computation).unwrap();
-        let ((), log) = WriterHandler::new().run(projected);
+        let ((), log) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(
             log,
             vec![
@@ -317,7 +317,7 @@ mod mtl_writer_tests {
 
         let projected =
             <Row as Member<WriterEffect<String>, There<Here>>>::project(computation).unwrap();
-        let ((), log) = WriterHandler::new().run(projected);
+        let ((), log) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(log, "message");
     }
 
@@ -328,7 +328,7 @@ mod mtl_writer_tests {
             tell::<String, Row, Here>("logging".to_string()).then(Eff::pure(42));
 
         let projected = <Row as Member<WriterEffect<String>, Here>>::project(computation).unwrap();
-        let (result, log) = WriterHandler::new().run(projected);
+        let (result, log) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(result, 42);
         assert_eq!(log, "logging");
     }
@@ -347,7 +347,7 @@ mod mtl_error_tests {
         let computation: Eff<Row, i32> = throw_error::<String, i32, Row, Here>("error".to_string());
 
         let projected = <Row as Member<ErrorEffect<String>, Here>>::project(computation).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Err("error".to_string()));
     }
 
@@ -358,7 +358,7 @@ mod mtl_error_tests {
             throw_error::<String, i32, Row, Here>("early".to_string()).fmap(|x| x + 100);
 
         let projected = <Row as Member<ErrorEffect<String>, Here>>::project(computation).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Err("early".to_string()));
     }
 
@@ -371,7 +371,7 @@ mod mtl_error_tests {
 
         let projected =
             <Row as Member<ErrorEffect<String>, There<Here>>>::project(computation).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Err("oops".to_string()));
     }
 
@@ -381,7 +381,7 @@ mod mtl_error_tests {
         let computation: Eff<Row, i32> = Eff::pure(42);
 
         let projected = <Row as Member<ErrorEffect<String>, Here>>::project(computation).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Ok(42));
     }
 }
@@ -406,13 +406,13 @@ mod combined_effect_tests {
         // Verify reader works
         let reader_projected =
             <Row as Member<ReaderEffect<i32>, Here>>::project(read_computation).unwrap();
-        let reader_result = ReaderHandler::new(10).run(reader_projected);
+        let reader_result = ReaderHandler::new(10).run(reader_projected).unwrap();
         assert_eq!(reader_result, 10);
 
         // Verify state works
         let state_projected =
             <Row as Member<StateEffect<i32>, There<Here>>>::project(state_computation).unwrap();
-        let (state_result, _) = StateHandler::new(20).run(state_projected);
+        let (state_result, _) = StateHandler::new(20).run(state_projected).unwrap();
         assert_eq!(state_result, 20);
     }
 
@@ -473,7 +473,7 @@ mod scenario_tests {
         let eff = reader.into_eff();
 
         // Run with handler
-        let result = ReaderHandler::new(7).run(eff);
+        let result = ReaderHandler::new(7).run(eff).unwrap();
         assert_eq!(result, 49); // 7 * 7
     }
 
@@ -487,7 +487,7 @@ mod scenario_tests {
         });
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let (result, final_state) = StateHandler::new(10).run(projected);
+        let (result, final_state) = StateHandler::new(10).run(projected).unwrap();
         assert_eq!(result, 20); // 10 + 10
         assert_eq!(final_state, 20);
     }
@@ -507,7 +507,7 @@ mod scenario_tests {
 
         let projected =
             <Row as Member<WriterEffect<Vec<String>>, Here>>::project(computation).unwrap();
-        let (result, log_output) = WriterHandler::new().run(projected);
+        let (result, log_output) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(result, 20);
         assert_eq!(
             log_output,
@@ -543,20 +543,20 @@ mod scenario_tests {
         let valid_computation = validate_positive(50).flat_map(validate_less_than_100);
         let projected =
             <Row as Member<ErrorEffect<String>, Here>>::project(valid_computation).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Ok(50));
 
         // Invalid: not positive
         let invalid_positive = validate_positive(-5).flat_map(validate_less_than_100);
         let projected =
             <Row as Member<ErrorEffect<String>, Here>>::project(invalid_positive).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Err("Value must be positive".to_string()));
 
         // Invalid: too large
         let invalid_large = validate_positive(150).flat_map(validate_less_than_100);
         let projected = <Row as Member<ErrorEffect<String>, Here>>::project(invalid_large).unwrap();
-        let result = ErrorHandler::new().run(projected);
+        let result = ErrorHandler::new().run(projected).unwrap();
         assert_eq!(result, Err("Value must be less than 100".to_string()));
     }
 }
@@ -573,7 +573,7 @@ mod edge_case_tests {
         let reader: Reader<String, usize> = Reader::asks(|s: String| s.len());
         let eff = reader.into_eff();
 
-        let result = ReaderHandler::new(String::new()).run(eff);
+        let result = ReaderHandler::new(String::new()).run(eff).unwrap();
         assert_eq!(result, 0);
     }
 
@@ -585,7 +585,7 @@ mod edge_case_tests {
             .then(get::<i32, Row, Here>());
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let (result, final_state) = StateHandler::new(0).run(projected);
+        let (result, final_state) = StateHandler::new(0).run(projected).unwrap();
         assert_eq!(result, 1);
         assert_eq!(final_state, 1);
     }
@@ -596,7 +596,7 @@ mod edge_case_tests {
         let computation: Eff<Row, i32> = Eff::pure(42);
 
         let projected = <Row as Member<WriterEffect<String>, Here>>::project(computation).unwrap();
-        let (result, log) = WriterHandler::new().run(projected);
+        let (result, log) = WriterHandler::new().run(projected).unwrap();
         assert_eq!(result, 42);
         assert_eq!(log, "");
     }
@@ -613,7 +613,7 @@ mod edge_case_tests {
             .fmap(|x| x + 1);
 
         let projected = <Row as Member<ReaderEffect<i32>, Here>>::project(mapped).unwrap();
-        let result = ReaderHandler::new(0).run(projected);
+        let result = ReaderHandler::new(0).run(projected).unwrap();
         assert_eq!(result, 5);
     }
 
@@ -626,7 +626,7 @@ mod edge_case_tests {
             .flat_map(|_| modify::<i32, Row, Here, _>(|x| x + 1).then(get::<i32, Row, Here>()));
 
         let projected = <Row as Member<StateEffect<i32>, Here>>::project(computation).unwrap();
-        let (result, final_state) = StateHandler::new(0).run(projected);
+        let (result, final_state) = StateHandler::new(0).run(projected).unwrap();
         assert_eq!(result, 3);
         assert_eq!(final_state, 3);
     }

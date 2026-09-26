@@ -10,7 +10,10 @@
 
 use super::effect::Effect;
 use std::any::Any;
+use std::error::Error;
+use std::fmt;
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// A tag identifying different operations within an effect.
 ///
@@ -25,6 +28,94 @@ impl OperationTag {
     #[inline]
     pub const fn new(value: u32) -> Self {
         Self(value)
+    }
+}
+
+/// Typed failure produced by the algebraic-effect interpreter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlgebraicError {
+    /// A type-erased operation argument/result did not match its declared type.
+    TypeMismatch {
+        /// Static description of the failed boundary.
+        context: &'static str,
+    },
+    /// A handler received an operation tag that it does not implement.
+    UnknownOperation {
+        /// Name of the effect being interpreted.
+        effect: &'static str,
+        /// Unexpected operation tag.
+        operation_tag: OperationTag,
+    },
+    /// A normalized computation still contained a deferred FlatMap node.
+    NormalizationInvariant,
+    /// A user continuation or mapping closure unwound.
+    ContinuationPanicked,
+}
+
+impl fmt::Display for AlgebraicError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TypeMismatch { context } => {
+                write!(formatter, "algebraic effect type mismatch at {context}")
+            }
+            Self::UnknownOperation { effect, operation_tag } => {
+                write!(formatter, "unknown {effect} operation: {operation_tag:?}")
+            }
+            Self::NormalizationInvariant => {
+                write!(formatter, "algebraic effect normalization invariant violated")
+            }
+            Self::ContinuationPanicked => {
+                write!(formatter, "algebraic effect continuation unwound")
+            }
+        }
+    }
+}
+
+impl Error for AlgebraicError {}
+
+/// Pure decision used by production checks and Kani/Verus regressions.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum AlgebraicExecutionDecision {
+    /// Execution can proceed.
+    Proceed = 0,
+    /// The computation has completed with a pure value.
+    Complete = 1,
+    /// A type-erased boundary failed.
+    TypeMismatch = 2,
+    /// A handler received an unsupported operation.
+    UnknownOperation = 3,
+    /// A normalized-shape invariant failed.
+    InvalidShape = 4,
+    /// A continuation unwound.
+    ContinuationPanicked = 5,
+    /// A previously captured failure must propagate.
+    PropagateFailure = 6,
+}
+
+/// Classifies one algebraic interpreter step without panicking.
+/// node_kind uses 0=Pure, 1=Impure, 2=FlatMap, 3=Failed.
+#[doc(hidden)]
+#[must_use]
+pub const fn algebraic_execution_decision(
+    node_kind: u8,
+    operation_known: bool,
+    type_matches: bool,
+    continuation_panicked: bool,
+) -> AlgebraicExecutionDecision {
+    if continuation_panicked {
+        return AlgebraicExecutionDecision::ContinuationPanicked;
+    }
+
+    match node_kind {
+        0 => AlgebraicExecutionDecision::Complete,
+        1 if !operation_known => AlgebraicExecutionDecision::UnknownOperation,
+        1 if !type_matches => AlgebraicExecutionDecision::TypeMismatch,
+        1 => AlgebraicExecutionDecision::Proceed,
+        2 => AlgebraicExecutionDecision::InvalidShape,
+        3 => AlgebraicExecutionDecision::PropagateFailure,
+        _ => AlgebraicExecutionDecision::InvalidShape,
     }
 }
 
@@ -50,6 +141,7 @@ pub enum EffInner<E: Effect, A: 'static> {
     Pure(A),
     Impure(EffOperation<E, A>),
     FlatMap(Box<EffFlatMap<E, A>>),
+    Failed(AlgebraicError),
 }
 
 /// An effectful computation.
@@ -84,7 +176,7 @@ pub enum EffInner<E: Effect, A: 'static> {
 /// let computation = Eff::<NoEffect, i32>::pure(21)
 ///     .fmap(|x| x * 2);
 ///
-/// let result = PureHandler.run(computation);
+/// let result = PureHandler.run(computation).unwrap();
 /// assert_eq!(result, 42);
 /// ```
 pub struct Eff<E: Effect, A: 'static> {
@@ -109,6 +201,26 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     pub const fn pure(value: A) -> Self {
         Self {
             inner: EffInner::Pure(value),
+        }
+    }
+
+    /// Creates a failed computation for internal typed-error propagation.
+    #[inline]
+    pub(crate) const fn failed(error: AlgebraicError) -> Self {
+        Self {
+            inner: EffInner::Failed(error),
+        }
+    }
+
+    /// Invokes a type-erased continuation while converting unwind to a typed failure.
+    #[inline]
+    pub(crate) fn invoke_continuation(
+        continuation: Continuation<E, A>,
+        input: Box<dyn Any>,
+    ) -> Self {
+        match catch_unwind(AssertUnwindSafe(|| continuation(input))) {
+            Ok(next) => next,
+            Err(_) => Self::failed(AlgebraicError::ContinuationPanicked),
         }
     }
 
@@ -146,11 +258,11 @@ impl<E: Effect, A: 'static> Eff<E, A> {
                 effect_marker: PhantomData,
                 operation_tag,
                 arguments: Box::new(arguments),
-                continuation: Box::new(|result| {
-                    let value = *result
-                        .downcast::<R>()
-                        .expect("Type mismatch in Eff::perform_raw");
-                    Eff::pure(value)
+                continuation: Box::new(|result| match result.downcast::<R>() {
+                    Ok(value) => Eff::pure(*value),
+                    Err(_) => Eff::failed(AlgebraicError::TypeMismatch {
+                        context: "Eff::perform_raw result",
+                    }),
                 }),
             }),
         }
@@ -163,20 +275,28 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     #[inline]
     pub(crate) fn normalize(self) -> Self {
         match self.inner {
-            EffInner::Pure(_) | EffInner::Impure(_) => self,
+            EffInner::Pure(_) | EffInner::Impure(_) | EffInner::Failed(_) => self,
             EffInner::FlatMap(flat_map) => Self::normalize_iteratively(*flat_map),
         }
     }
 
     #[inline]
     fn normalize_iteratively(initial_flat_map: EffFlatMap<E, A>) -> Self {
-        let mut current_result = (initial_flat_map.transform)(initial_flat_map.source);
+        let mut current_result = Self::invoke_continuation(
+            initial_flat_map.transform,
+            initial_flat_map.source,
+        );
 
         loop {
             match current_result.inner {
-                EffInner::Pure(_) | EffInner::Impure(_) => return current_result,
+                EffInner::Pure(_) | EffInner::Impure(_) | EffInner::Failed(_) => {
+                    return current_result;
+                }
                 EffInner::FlatMap(next_flat_map) => {
-                    current_result = (next_flat_map.transform)(next_flat_map.source);
+                    current_result = Self::invoke_continuation(
+                        next_flat_map.transform,
+                        next_flat_map.source,
+                    );
                 }
             }
         }
@@ -194,7 +314,7 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     /// let computation = Eff::<NoEffect, i32>::pure(21)
     ///     .fmap(|x| x * 2);
     ///
-    /// let result = PureHandler.run(computation);
+    /// let result = PureHandler.run(computation).unwrap();
     /// assert_eq!(result, 42);
     /// ```
     #[inline]
@@ -211,11 +331,8 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     ///
     /// Uses deferred evaluation for stack safety.
     ///
-    /// # Panics
-    ///
-    /// This method may panic during handler execution if there is a type
-    /// mismatch in the internal type-erased continuation chain. This should
-    /// not happen in normal usage.
+    /// Type-erasure mismatches and continuation unwinds are captured in the
+    /// computation and returned by the handler as AlgebraicError.
     ///
     /// # Examples
     ///
@@ -225,7 +342,7 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     /// let computation = Eff::<NoEffect, i32>::pure(10)
     ///     .flat_map(|x| Eff::pure(x + 5));
     ///
-    /// let result = PureHandler.run(computation);
+    /// let result = PureHandler.run(computation).unwrap();
     /// assert_eq!(result, 15);
     /// ```
     #[inline]
@@ -234,20 +351,32 @@ impl<E: Effect, A: 'static> Eff<E, A> {
         F: FnOnce(A) -> Eff<E, B> + 'static,
     {
         match self.inner {
-            EffInner::Pure(value) => function(value),
+            EffInner::Pure(value) => {
+                match catch_unwind(AssertUnwindSafe(|| function(value))) {
+                    Ok(next) => next,
+                    Err(_) => Eff::failed(AlgebraicError::ContinuationPanicked),
+                }
+            }
             EffInner::Impure(operation) => Eff {
                 inner: EffInner::Impure(EffOperation {
                     effect_marker: operation.effect_marker,
                     operation_tag: operation.operation_tag,
                     arguments: operation.arguments,
                     continuation: Box::new(move |result| {
-                        let next = (operation.continuation)(result);
+                        let next = Eff::<E, A>::invoke_continuation(
+                            operation.continuation,
+                            result,
+                        );
                         Eff {
                             inner: EffInner::FlatMap(Box::new(EffFlatMap {
                                 source: Box::new(next),
                                 transform: Box::new(move |source| {
-                                    let eff = *source.downcast::<Self>().unwrap();
-                                    eff.flat_map(function)
+                                    match source.downcast::<Self>() {
+                                        Ok(eff) => eff.flat_map(function),
+                                        Err(_) => Eff::failed(AlgebraicError::TypeMismatch {
+                                            context: "Eff::flat_map source",
+                                        }),
+                                    }
                                 }),
                             })),
                         }
@@ -260,12 +389,13 @@ impl<E: Effect, A: 'static> Eff<E, A> {
                     inner: EffInner::FlatMap(Box::new(EffFlatMap {
                         source,
                         transform: Box::new(move |src| {
-                            let next = transform(src);
+                            let next = Eff::<E, A>::invoke_continuation(transform, src);
                             next.flat_map(function)
                         }),
                     })),
                 }
             }
+            EffInner::Failed(error) => Eff::failed(error),
         }
     }
 
@@ -288,7 +418,7 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     /// let computation = Eff::<NoEffect, i32>::pure(10)
     ///     .then(Eff::pure(42));
     ///
-    /// let result = PureHandler.run(computation);
+    /// let result = PureHandler.run(computation).unwrap();
     /// assert_eq!(result, 42);
     /// ```
     #[inline]
@@ -306,7 +436,7 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     /// let computation = Eff::<NoEffect, i32>::pure(10)
     ///     .map2(Eff::pure(20), |a, b| a + b);
     ///
-    /// let result = PureHandler.run(computation);
+    /// let result = PureHandler.run(computation).unwrap();
     /// assert_eq!(result, 30);
     /// ```
     pub fn map2<B: 'static, C: 'static, F>(self, other: Eff<E, B>, function: F) -> Eff<E, C>
@@ -326,7 +456,7 @@ impl<E: Effect, A: 'static> Eff<E, A> {
     /// let computation = Eff::<NoEffect, i32>::pure(1)
     ///     .product(Eff::pure(2));
     ///
-    /// let result = PureHandler.run(computation);
+    /// let result = PureHandler.run(computation).unwrap();
     /// assert_eq!(result, (1, 2));
     /// ```
     #[inline]

@@ -26,11 +26,11 @@
 //!
 //! // Run with a specific configuration
 //! let config = Config { debug_mode: true, max_retries: 3 };
-//! let result = ReaderHandler::new(config).run(computation);
+//! let result = ReaderHandler::new(config).run(computation).unwrap();
 //! assert_eq!(result, 3);
 //! ```
 
-use super::eff::{Eff, EffInner, OperationTag};
+use super::eff::{AlgebraicError, Eff, EffInner, OperationTag};
 use super::effect::Effect;
 use super::handler::Handler;
 use std::marker::PhantomData;
@@ -57,7 +57,7 @@ mod reader_operations {
 /// let computation = ReaderEffect::<i32>::ask()
 ///     .fmap(|x| x * 2);
 ///
-/// let result = ReaderHandler::new(21).run(computation);
+/// let result = ReaderHandler::new(21).run(computation).unwrap();
 /// assert_eq!(result, 42);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -76,7 +76,7 @@ impl<R: Clone + 'static> ReaderEffect<R> {
     /// use lambars::effect::algebraic::{ReaderEffect, ReaderHandler, Handler};
     ///
     /// let computation = ReaderEffect::<String>::ask();
-    /// let result = ReaderHandler::new("hello".to_string()).run(computation);
+    /// let result = ReaderHandler::new("hello".to_string()).run(computation).unwrap();
     /// assert_eq!(result, "hello");
     /// ```
     #[must_use]
@@ -94,7 +94,7 @@ impl<R: Clone + 'static> ReaderEffect<R> {
     /// use lambars::effect::algebraic::{ReaderEffect, ReaderHandler, Handler};
     ///
     /// let computation = ReaderEffect::<String>::asks(|s| s.len());
-    /// let result = ReaderHandler::new("hello".to_string()).run(computation);
+    /// let result = ReaderHandler::new("hello".to_string()).run(computation).unwrap();
     /// assert_eq!(result, 5);
     /// ```
     pub fn asks<A: 'static, F>(projection: F) -> Eff<Self, A>
@@ -121,7 +121,7 @@ impl<R: Clone + 'static> ReaderEffect<R> {
 ///
 /// let handler = ReaderHandler::new(42);
 /// let computation = ReaderEffect::<i32>::ask();
-/// let result = handler.run(computation);
+/// let result = handler.run(computation).unwrap();
 /// assert_eq!(result, 42);
 /// ```
 #[derive(Debug, Clone)]
@@ -169,14 +169,14 @@ impl<R: Clone + 'static> ReaderHandler<R> {
     /// // Modify environment: multiply by 2
     /// let handler = ReaderHandler::new(21);
     /// let computation = ReaderEffect::<i32>::ask();
-    /// let result = handler.run_with_local(|x| x * 2, computation);
+    /// let result = handler.run_with_local(|x| x * 2, computation).unwrap();
     /// assert_eq!(result, 42);
     /// ```
     pub fn run_with_local<A: 'static, F>(
         &self,
         modifier: F,
         computation: Eff<ReaderEffect<R>, A>,
-    ) -> A
+    ) -> Result<A, AlgebraicError>
     where
         F: FnOnce(R) -> R,
     {
@@ -188,38 +188,45 @@ impl<R: Clone + 'static> ReaderHandler<R> {
     ///
     /// Uses an iterative approach for stack safety.
     #[inline]
-    fn run_with_environment<A: 'static>(computation: Eff<ReaderEffect<R>, A>, environment: R) -> A {
-        // Early return for Pure case (avoids normalize() overhead)
-        if let EffInner::Pure(value) = computation.inner {
-            return value;
-        }
-
+    fn run_with_environment<A: 'static>(
+        computation: Eff<ReaderEffect<R>, A>,
+        environment: R,
+    ) -> Result<A, AlgebraicError> {
         let mut current_computation = computation;
 
         loop {
             let normalized = current_computation.normalize();
 
             match normalized.inner {
-                EffInner::Pure(value) => return value,
-                EffInner::Impure(operation) => match operation.operation_tag {
-                    reader_operations::ASK => {
-                        let continuation = operation.continuation;
-                        current_computation = continuation(Box::new(environment.clone()));
+                EffInner::Pure(value) => return Ok(value),
+                EffInner::Impure(operation) => {
+                    if operation.operation_tag != reader_operations::ASK {
+                        return Err(AlgebraicError::UnknownOperation {
+                            effect: ReaderEffect::<R>::NAME,
+                            operation_tag: operation.operation_tag,
+                        });
                     }
-                    _ => panic!("Unknown Reader operation: {:?}", operation.operation_tag),
-                },
-                EffInner::FlatMap(_) => {
-                    unreachable!("FlatMap should be normalized by normalize()")
+                    current_computation = Eff::<ReaderEffect<R>, A>::invoke_continuation(
+                        operation.continuation,
+                        Box::new(environment.clone()),
+                    );
                 }
+                EffInner::FlatMap(_) => {
+                    return Err(AlgebraicError::NormalizationInvariant);
+                }
+                EffInner::Failed(error) => return Err(error),
             }
         }
     }
 }
 
 impl<R: Clone + 'static> Handler<ReaderEffect<R>> for ReaderHandler<R> {
-    type Output<A> = A;
+    type Output<A> = Result<A, AlgebraicError>;
 
-    fn run<A: 'static>(self, computation: Eff<ReaderEffect<R>, A>) -> A {
+    fn run<A: 'static>(
+        self,
+        computation: Eff<ReaderEffect<R>, A>,
+    ) -> Result<A, AlgebraicError> {
         Self::run_with_environment(computation, self.environment)
     }
 }
@@ -257,7 +264,7 @@ impl<R: Clone + 'static> Handler<ReaderEffect<R>> for ReaderHandler<R> {
 ///     |inner_result| ReaderEffect::ask().fmap(move |outer| (inner_result, outer))
 /// );
 ///
-/// let result = handler.run(computation);
+/// let result = handler.run(computation).unwrap();
 /// assert_eq!(result, (20, 10)); // inner is 20, outer is 10
 /// ```
 pub fn run_local<R, A, B, F, G>(
@@ -274,8 +281,10 @@ where
 {
     ReaderEffect::ask().flat_map(move |environment| {
         let modified_environment = modifier(environment);
-        let inner_result = ReaderHandler::run_with_environment(inner, modified_environment);
-        continuation(inner_result)
+        match ReaderHandler::run_with_environment(inner, modified_environment) {
+            Ok(inner_result) => continuation(inner_result),
+            Err(error) => Eff::failed(error),
+        }
     })
 }
 
@@ -334,13 +343,38 @@ mod tests {
         assert_eq!(*cloned.environment(), 42);
     }
 
+    #[rstest]
+    fn reader_wrong_operation_result_type_returns_error() {
+        let malformed =
+            Eff::<ReaderEffect<i32>, String>::perform_raw::<String>(reader_operations::ASK, ());
+        assert_eq!(
+            ReaderHandler::new(42).run(malformed),
+            Err(AlgebraicError::TypeMismatch {
+                context: "Eff::perform_raw result",
+            })
+        );
+    }
+
+    #[rstest]
+    fn reader_unknown_operation_returns_error() {
+        let malformed =
+            Eff::<ReaderEffect<i32>, i32>::perform_raw::<i32>(OperationTag::new(999), ());
+        assert!(matches!(
+            ReaderHandler::new(42).run(malformed),
+            Err(AlgebraicError::UnknownOperation {
+                effect: "Reader",
+                ..
+            })
+        ));
+    }
+
     // ask Operation Tests
 
     #[rstest]
     fn reader_ask_returns_environment() {
         let handler = ReaderHandler::new(42);
         let computation = ReaderEffect::<i32>::ask();
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -348,7 +382,7 @@ mod tests {
     fn reader_ask_with_string() {
         let handler = ReaderHandler::new("hello".to_string());
         let computation = ReaderEffect::<String>::ask();
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, "hello");
     }
 
@@ -366,7 +400,7 @@ mod tests {
         };
         let handler = ReaderHandler::new(config.clone());
         let computation = ReaderEffect::<Config>::ask();
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, config);
     }
 
@@ -376,7 +410,7 @@ mod tests {
     fn reader_asks_projects_environment() {
         let handler = ReaderHandler::new("hello".to_string());
         let computation = ReaderEffect::asks(|s: String| s.len());
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 5);
     }
 
@@ -389,7 +423,7 @@ mod tests {
 
         let handler = ReaderHandler::new(Config { max_retries: 3 });
         let computation = ReaderEffect::asks(|config: Config| config.max_retries);
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 3);
     }
 
@@ -397,7 +431,7 @@ mod tests {
     fn reader_asks_with_complex_projection() {
         let handler = ReaderHandler::new(vec![1, 2, 3, 4, 5]);
         let computation = ReaderEffect::asks(|v: Vec<i32>| v.iter().sum::<i32>());
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 15);
     }
 
@@ -407,7 +441,7 @@ mod tests {
     fn reader_run_with_local_modifies_environment() {
         let handler = ReaderHandler::new(10);
         let computation = ReaderEffect::<i32>::ask();
-        let result = handler.run_with_local(|x| x * 2, computation);
+        let result = handler.run_with_local(|x| x * 2, computation).unwrap();
         assert_eq!(result, 20);
     }
 
@@ -415,7 +449,7 @@ mod tests {
     fn reader_run_with_local_with_asks() {
         let handler = ReaderHandler::new("hello".to_string());
         let computation = ReaderEffect::asks(|s: String| s.len());
-        let result = handler.run_with_local(|s| format!("{s} world"), computation);
+        let result = handler.run_with_local(|s| format!("{s} world"), computation).unwrap();
         assert_eq!(result, 11); // "hello world".len()
     }
 
@@ -429,7 +463,7 @@ mod tests {
             ReaderEffect::<i32>::ask(),
             |inner_result| ReaderEffect::ask().fmap(move |outer| (inner_result, outer)),
         );
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, (20, 10));
     }
 
@@ -450,7 +484,7 @@ mod tests {
         // Actually no - run_local gets the current env, modifies it, runs inner
         // So outer run_local: gets 5, modifies to 10, runs inner
         // Inner computation is another run_local which gets 10, modifies to 13
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         // When we run the outer run_local:
         // - It asks for env -> gets 5
         // - Modifies 5 to 10
@@ -469,7 +503,7 @@ mod tests {
         let handler = ReaderHandler::new(10);
         let computation =
             ReaderEffect::<i32>::ask().flat_map(|x| ReaderEffect::asks(move |y: i32| x + y));
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 20); // 10 + 10
     }
 
@@ -479,7 +513,7 @@ mod tests {
         let computation = ReaderEffect::<i32>::ask()
             .flat_map(|a| ReaderEffect::ask().fmap(move |b| a + b))
             .flat_map(|sum| ReaderEffect::ask().fmap(move |c| sum + c));
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 15); // 5 + 5 + 5
     }
 
@@ -487,7 +521,7 @@ mod tests {
     fn reader_fmap_transforms_result() {
         let handler = ReaderHandler::new(21);
         let computation = ReaderEffect::<i32>::ask().fmap(|x| x * 2);
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 42);
     }
 
@@ -495,7 +529,7 @@ mod tests {
     fn reader_pure_value_ignores_environment() {
         let handler = ReaderHandler::new(100);
         let computation: Eff<ReaderEffect<i32>, &str> = Eff::pure("constant");
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, "constant");
     }
 
@@ -505,7 +539,7 @@ mod tests {
         let computation = ReaderEffect::<i32>::ask()
             .fmap(|_| "first")
             .then(ReaderEffect::ask().fmap(|_| "second"));
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, "second");
     }
 
@@ -516,7 +550,7 @@ mod tests {
         for _ in 0..1000 {
             computation = computation.flat_map(|x| ReaderEffect::ask().fmap(move |y| x + y));
         }
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 0); // 0 added 1000 times
     }
 
@@ -527,7 +561,7 @@ mod tests {
         for _ in 0..1000 {
             computation = computation.fmap(|x| x + 1);
         }
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 1001); // 1 + 1000
     }
 
@@ -552,7 +586,7 @@ mod tests {
                 })
             });
 
-        let result = handler.run(computation);
+        let result = handler.run(computation).unwrap();
         assert_eq!(result, 25); // 5 * 3 + 10
     }
 }
