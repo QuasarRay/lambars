@@ -47,14 +47,14 @@ async fn direct_await_with_flat_map_chain() {
 fn run_blocking_accepts_async_io_directly() {
     let direct = runtime::run_blocking(AsyncIO::pure(42));
 
-    assert_eq!(direct, 42);
+    assert_eq!(direct, Ok(42));
 }
 
 #[rstest]
 fn run_blocking_accepts_async_io_with_fmap_chain() {
     let direct = runtime::run_blocking(AsyncIO::pure(10).fmap(|x| x * 2).fmap(|x| x + 1));
 
-    assert_eq!(direct, 21);
+    assert_eq!(direct, Ok(21));
 }
 
 #[rstest]
@@ -65,7 +65,7 @@ fn run_blocking_accepts_async_io_with_flat_map_chain() {
             .flat_map(|x| AsyncIO::pure(x + 1)),
     );
 
-    assert_eq!(direct, 21);
+    assert_eq!(direct, Ok(21));
 }
 
 #[rstest]
