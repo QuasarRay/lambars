@@ -1,6 +1,6 @@
 [workspace]
 members = [".", "lambars-derive", "lambars-verification", "lambars-verify-macros", "xtask"]
-exclude = ["benches/api", "benches/iai", "verification/kani", "verification/verus"]
+exclude = ["benches/api", "benches/iai", "fuzz", "verification/kani", "verification/verus"]
 resolver = "3"
 
 [package]
