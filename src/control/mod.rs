@@ -39,7 +39,7 @@
 //!
 //! let handles: Vec<_> = (0..10).map(|_| {
 //!     let lazy = Arc::clone(&lazy);
-//!     thread::spawn(move || *lazy.force())
+//!     thread::spawn(move || *lazy.force().unwrap())
 //! }).collect();
 //!
 //! for handle in handles {
