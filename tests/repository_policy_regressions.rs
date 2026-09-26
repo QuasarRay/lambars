@@ -23,6 +23,9 @@ const QUALIFICATION: &str = include_str!("../verification/qualification.json");
 const ROOT_LOCK: &str = include_str!("../Cargo.lock");
 const IAI_MANIFEST: &str = include_str!("../benches/iai/Cargo.toml");
 const PANIC_POLICY: &str = include_str!("../docs/safety/panic-policy.md");
+const UNSAFE_BOUNDARY_CHECKER: &str =
+    include_str!("../verification/tools/check_unsafe_boundary.py");
+const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const ASYNC_POOL_SOURCE: &str = include_str!("../src/effect/async_io/pool.rs");
 const ORDERED_UNIQUE_SET_SOURCE: &str =
     include_str!("../src/persistent/ordered_unique_set.rs");
@@ -295,4 +298,13 @@ fn sc004_ordered_set_invariant_predicate_exists_in_release_profiles() {
             "#[cfg(debug_assertions)]\n#[inline]\nfn is_strictly_sorted"
         )
     );
+}
+
+
+#[test]
+fn sc035_runtime_forbids_unsafe_without_local_escape_hatches() {
+    assert!(LIB_SOURCE.contains("#![forbid(unsafe_code)]"));
+    assert!(ROOT_MANIFEST.contains("unsafe_code = \"forbid\""));
+    assert!(UNSAFE_BOUNDARY_CHECKER.contains("zero unsafe syntax"));
+    assert!(!UNSAFE_BOUNDARY_CHECKER.contains("ALLOWED ="));
 }
