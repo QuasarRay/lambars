@@ -75,7 +75,7 @@
 //! // Spawn multiple threads that access the lazy value
 //! let handles: Vec<_> = (0..10).map(|_| {
 //!     let lazy = Arc::clone(&lazy);
-//!     thread::spawn(move || *lazy.force())
+//!     thread::spawn(move || *lazy.force().unwrap().unwrap())
 //! }).collect();
 //!
 //! // All threads get the same value, and initialization happens only once
@@ -371,7 +371,7 @@ pub const fn concurrent_lazy_wait_decision(
 /// let lazy = ConcurrentLazy::new(|| expensive_computation());
 ///
 /// // Computation happens here
-/// let value = lazy.force();
+/// let value = lazy.force().unwrap();
 ///
 /// fn expensive_computation() -> i32 {
 ///     // Simulating expensive work
@@ -390,7 +390,7 @@ pub const fn concurrent_lazy_wait_decision(
 ///
 /// let handles: Vec<_> = (0..10).map(|_| {
 ///     let lazy = Arc::clone(&lazy);
-///     thread::spawn(move || *lazy.force())
+///     thread::spawn(move || *lazy.force().unwrap().unwrap())
 /// }).collect();
 ///
 /// for handle in handles {
@@ -455,30 +455,16 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         }
     }
 
-    /// Forces evaluation of the lazy value and returns a reference to it.
+    /// Forces evaluation and returns the memoized value through a typed result.
     ///
-    /// If the value has not been computed yet, the initialization function
-    /// is called and the result is cached. Subsequent calls return the
-    /// cached value.
+    /// This is the primary thread-safe access path. Initialization panic,
+    /// poisoning, and same-thread re-entry are represented by
+    /// `ConcurrentLazyPoisonedError`.
     ///
-    /// This method is thread-safe. If multiple threads call `force()` concurrently,
-    /// only one will execute the initialization function, and all others will
-    /// wait via an adaptive strategy (spin + Condvar) before returning the value.
+    /// # Errors
     ///
-    /// # Waiting Mechanism
-    ///
-    /// 1. **Fast path**: If `STATE_READY`, returns immediately (lock-free `Acquire` load)
-    /// 2. **Adaptive spin**: Spins for up to 128 iterations in user-space
-    /// 3. **Condvar wait**: Falls back to `parking_lot::Condvar::wait` for
-    ///    indefinite blocking until initialization completes
-    ///
-    /// # Panics
-    ///
-    /// - If the initialization function has already been consumed (e.g., after
-    ///   a previous panic during initialization)
-    /// - If the initialization function panics
-    /// - If re-entrant initialization is detected (calling `force()` from within
-    ///   the initializer on the same thread)
+    /// Returns `ConcurrentLazyPoisonedError` if initialization fails, the
+    /// instance is poisoned, or the same instance is re-entered by its initializer.
     ///
     /// # Examples
     ///
@@ -486,79 +472,12 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// use lambars::control::ConcurrentLazy;
     ///
     /// let lazy = ConcurrentLazy::new(|| 42);
-    /// let value = lazy.force();
+    /// let value = lazy.force().unwrap();
     /// assert_eq!(*value, 42);
     /// ```
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    pub fn force(&self) -> &T {
-        let state = self.state.load(Ordering::Acquire);
-        if state == STATE_READY {
-            // SAFETY: Transition to STATE_READY is done in do_init() after value.write()
-            // completes with Release ordering. The Acquire load here establishes
-            // happens-before relationship, guaranteeing that write is visible.
-            return unsafe { (*self.value.get()).assume_init_ref() };
-        }
-        self.force_slow(state)
-    }
-
-    /// Slow path for `force()`: handles `STATE_EMPTY`, `STATE_COMPUTING`, and `STATE_POISONED`.
-    ///
-    /// This method is intentionally `#[inline(never)]` to keep the fast path (`force()`)
-    /// small enough for the compiler to inline at every call site. The fast path is just
-    /// an `Acquire` load + branch, which is essentially zero-cost after initialization.
-    #[inline(never)]
-    fn force_slow(&self, mut state: u8) -> &T {
-        loop {
-            match state {
-                STATE_READY => {
-                    // SAFETY: Same as force() fast path.
-                    return unsafe { (*self.value.get()).assume_init_ref() };
-                }
-                STATE_POISONED => {
-                    panic!("ConcurrentLazy instance has been poisoned");
-                }
-                STATE_EMPTY => {
-                    match self.state.compare_exchange_weak(
-                        STATE_EMPTY,
-                        STATE_COMPUTING,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    ) {
-                        Ok(_) => {
-                            return self.do_init();
-                        }
-                        Err(current_state) => {
-                            state = current_state;
-                        }
-                    }
-                }
-                STATE_COMPUTING => {
-                    let identity = concurrent_lazy_identity(self);
-                    let is_reentrant = CONCURRENT_LAZY_INIT_STACK.with(|stack| {
-                        stack
-                            .borrow()
-                            .iter()
-                            .any(|active| concurrent_lazy_pointer_reentry_matches(*active, identity))
-                    });
-                    assert!(
-                        !is_reentrant,
-                        "ConcurrentLazy::force re-entrant initialization detected: \
-                         force() revisited the same ConcurrentLazy instance on the \
-                         initializing thread"
-                    );
-                    self.wait_on_initialization();
-                    state = self.state.load(Ordering::Acquire);
-                }
-                _ => unreachable!("Invalid state"),
-            }
-        }
-    }
-
-    /// Performs initialization for the explicitly partial `force()` wrapper.
-    fn do_init(&self) -> &T {
-        self.do_init_result()
-            .unwrap_or_else(|_| panic!("ConcurrentLazy: initialization failed or re-entered"))
+    #[inline]
+    pub fn force(&self) -> Result<&T, ConcurrentLazyPoisonedError> {
+        self.try_force()
     }
 
     /// Performs initialization without unwinding.
@@ -783,7 +702,7 @@ impl<T> ConcurrentLazy<T, fn() -> T> {
     /// use lambars::control::ConcurrentLazy;
     ///
     /// let lazy = ConcurrentLazy::pure(42);
-    /// assert_eq!(*lazy.force(), 42);
+    /// assert_eq!(*lazy.force().unwrap().unwrap(), 42);
     /// ```
     #[inline]
     pub fn pure(value: T) -> Self {
@@ -805,7 +724,7 @@ impl<T, F> ConcurrentLazy<T, F> {
     ///
     /// assert!(lazy.get().is_none());
     ///
-    /// let _ = lazy.force();
+    /// let _ = lazy.force().unwrap();
     /// assert!(lazy.get().is_some());
     /// ```
     #[inline]
@@ -828,7 +747,7 @@ impl<T, F> ConcurrentLazy<T, F> {
     /// let lazy = ConcurrentLazy::new(|| 42);
     /// assert!(!lazy.is_initialized());
     ///
-    /// let _ = lazy.force();
+    /// let _ = lazy.force().unwrap();
     /// assert!(lazy.is_initialized());
     /// ```
     #[inline]
@@ -1081,7 +1000,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// let lazy = ConcurrentLazy::new(|| 21);
     /// let doubled = lazy.map(|x| x * 2);
     ///
-    /// assert_eq!(*doubled.force(), 42);
+    /// assert_eq!(*doubled.force().unwrap().unwrap(), 42);
     /// ```
     pub fn map<U, G>(self, function: G) -> ConcurrentLazy<U, impl FnOnce() -> U>
     where
@@ -1145,7 +1064,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// let lazy = ConcurrentLazy::new(|| 21);
     /// let result = lazy.flat_map(|x| ConcurrentLazy::new(move || x * 2));
     ///
-    /// assert_eq!(*result.force(), 42);
+    /// assert_eq!(*result.force().unwrap().unwrap(), 42);
     /// ```
     pub fn flat_map<U, ResultFunction, G>(
         self,
@@ -1180,7 +1099,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// let lazy2 = ConcurrentLazy::new(|| "hello");
     /// let combined = lazy1.zip(lazy2);
     ///
-    /// assert_eq!(*combined.force(), (1, "hello"));
+    /// assert_eq!(*combined.force().unwrap().unwrap(), (1, "hello"));
     /// ```
     pub fn zip<U, OtherFunction>(
         self,
@@ -1215,7 +1134,7 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
     /// let lazy2 = ConcurrentLazy::new(|| 22);
     /// let sum = lazy1.zip_with(lazy2, |a, b| a + b);
     ///
-    /// assert_eq!(*sum.force(), 42);
+    /// assert_eq!(*sum.force().unwrap().unwrap(), 42);
     /// ```
     pub fn zip_with<U, V, OtherFunction, CombineFunction>(
         self,
@@ -1247,7 +1166,7 @@ impl<T: Default> Default for ConcurrentLazy<T> {
     /// use lambars::control::ConcurrentLazy;
     ///
     /// let lazy: ConcurrentLazy<i32> = ConcurrentLazy::default();
-    /// assert_eq!(*lazy.force(), 0);
+    /// assert_eq!(*lazy.force().unwrap().unwrap(), 0);
     /// ```
     fn default() -> Self {
         Self::new(T::default)
@@ -1300,7 +1219,7 @@ mod tests {
     #[rstest]
     fn test_display_evaluated_lazy() {
         let lazy = ConcurrentLazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(format!("{lazy}"), "42");
     }
 
@@ -1320,7 +1239,7 @@ mod tests {
     #[rstest]
     fn test_concurrent_lazy_force_computes_value() {
         let lazy = ConcurrentLazy::new(|| 42);
-        let value = lazy.force();
+        let value = lazy.force().unwrap();
         assert_eq!(*value, 42);
         assert!(lazy.is_initialized());
     }
@@ -1335,9 +1254,9 @@ mod tests {
         });
 
         assert_eq!(counter.load(AtomicOrdering::SeqCst), 0);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(counter.load(AtomicOrdering::SeqCst), 1);
     }
 
@@ -1345,21 +1264,21 @@ mod tests {
     fn test_concurrent_lazy_new_with_value() {
         let lazy = ConcurrentLazy::new_with_value(42);
         assert!(lazy.is_initialized());
-        assert_eq!(*lazy.force(), 42);
+        assert_eq!(*lazy.force().unwrap().unwrap(), 42);
     }
 
     #[rstest]
     fn test_concurrent_lazy_map() {
         let lazy = ConcurrentLazy::new(|| 21);
         let doubled = lazy.map(|x| x * 2);
-        assert_eq!(*doubled.force(), 42);
+        assert_eq!(*doubled.force().unwrap().unwrap(), 42);
     }
 
     #[rstest]
     fn test_concurrent_lazy_flat_map() {
         let lazy = ConcurrentLazy::new(|| 21);
         let result = lazy.flat_map(|x| ConcurrentLazy::new(move || x * 2));
-        assert_eq!(*result.force(), 42);
+        assert_eq!(*result.force().unwrap().unwrap(), 42);
     }
 
     #[rstest]
@@ -1367,7 +1286,7 @@ mod tests {
         let lazy1 = ConcurrentLazy::new(|| 1);
         let lazy2 = ConcurrentLazy::new(|| "hello");
         let combined = lazy1.zip(lazy2);
-        assert_eq!(*combined.force(), (1, "hello"));
+        assert_eq!(*combined.force().unwrap().unwrap(), (1, "hello"));
     }
 
     #[rstest]
@@ -1375,20 +1294,20 @@ mod tests {
         let lazy1 = ConcurrentLazy::new(|| 20);
         let lazy2 = ConcurrentLazy::new(|| 22);
         let sum = lazy1.zip_with(lazy2, |a, b| a + b);
-        assert_eq!(*sum.force(), 42);
+        assert_eq!(*sum.force().unwrap().unwrap(), 42);
     }
 
     #[rstest]
     fn test_concurrent_lazy_pure() {
         let lazy = ConcurrentLazy::pure(42);
         assert!(lazy.is_initialized());
-        assert_eq!(*lazy.force(), 42);
+        assert_eq!(*lazy.force().unwrap().unwrap(), 42);
     }
 
     #[rstest]
     fn test_concurrent_lazy_default() {
         let lazy: ConcurrentLazy<i32> = ConcurrentLazy::default();
-        assert_eq!(*lazy.force(), 0);
+        assert_eq!(*lazy.force().unwrap().unwrap(), 0);
     }
 
     #[rstest]
@@ -1400,7 +1319,7 @@ mod tests {
     #[rstest]
     fn test_concurrent_lazy_get_after_init() {
         let lazy = ConcurrentLazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(*lazy.get().unwrap(), 42);
     }
 
@@ -1413,14 +1332,14 @@ mod tests {
     #[rstest]
     fn test_concurrent_lazy_into_inner_init() {
         let lazy = ConcurrentLazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(lazy.into_inner(), Ok(42));
     }
 
     #[rstest]
     fn test_concurrent_lazy_into_inner_poisoned() {
         let lazy = ConcurrentLazy::new(|| -> i32 { panic!("initialization failed") });
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.force()));
+        assert_eq!(lazy.force(), Err(ConcurrentLazyPoisonedError));
         assert_eq!(lazy.into_inner(), Err(ConcurrentLazyPoisonedError));
     }
 
@@ -1428,12 +1347,8 @@ mod tests {
     fn test_concurrent_lazy_poison_propagation() {
         let lazy = ConcurrentLazy::new(|| -> i32 { panic!("test panic") });
 
-        let result1 = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.force()));
-        assert!(result1.is_err());
-
-        let result2 = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.force()));
-        assert!(result2.is_err());
-
+        assert_eq!(lazy.force(), Err(ConcurrentLazyPoisonedError));
+        assert_eq!(lazy.force(), Err(ConcurrentLazyPoisonedError));
         assert!(lazy.is_poisoned());
     }
 
@@ -1446,14 +1361,14 @@ mod tests {
     #[rstest]
     fn test_concurrent_lazy_debug_init() {
         let lazy = ConcurrentLazy::new(|| 42);
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(format!("{lazy:?}"), "42");
     }
 
     #[rstest]
     fn test_concurrent_lazy_debug_poisoned() {
         let lazy = ConcurrentLazy::new(|| -> i32 { panic!("initialization failed") });
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.force()));
+        assert_eq!(lazy.force(), Err(ConcurrentLazyPoisonedError));
         assert_eq!(format!("{lazy:?}"), "<poisoned>");
     }
 
@@ -1469,7 +1384,7 @@ mod tests {
         let handles: Vec<_> = (0..100)
             .map(|_| {
                 let lazy = Arc::clone(&lazy);
-                thread::spawn(move || *lazy.force())
+                thread::spawn(move || *lazy.force().unwrap().unwrap())
             })
             .collect();
 
@@ -1506,7 +1421,7 @@ mod tests {
         let lazy = ConcurrentLazy::new(move || DropTracker {
             dropped: dropped_clone,
         });
-        let _ = lazy.force();
+        let _ = lazy.force().unwrap();
         assert_eq!(dropped.load(AtomicOrdering::SeqCst), 0);
 
         drop(lazy);
@@ -1554,7 +1469,7 @@ mod tests {
         });
 
         let lazy = ConcurrentLazy::new(|| 42);
-        assert_eq!(*lazy.force(), 42);
+        assert_eq!(*lazy.force().unwrap().unwrap(), 42);
 
         CONCURRENT_LAZY_INIT_STACK.with(|stack| {
             assert!(stack.borrow().is_empty());
@@ -1564,10 +1479,10 @@ mod tests {
     #[rstest]
     fn test_nested_distinct_concurrent_lazy_initialization_succeeds() {
         let inner = ConcurrentLazy::new(|| 41);
-        let outer = ConcurrentLazy::new(|| *inner.force() + 1);
+        let outer = ConcurrentLazy::new(|| *inner.force().unwrap() + 1);
 
-        assert_eq!(*outer.force(), 42);
-        assert_eq!(*inner.force(), 41);
+        assert_eq!(*outer.force().unwrap(), 42);
+        assert_eq!(*inner.force().unwrap(), 41);
         assert!(!outer.is_poisoned());
         assert!(!inner.is_poisoned());
     }
@@ -1575,12 +1490,12 @@ mod tests {
     #[rstest]
     fn test_three_level_acyclic_nested_initialization_succeeds() {
         let leaf = ConcurrentLazy::new(|| 40);
-        let middle = ConcurrentLazy::new(|| *leaf.force() + 1);
-        let root = ConcurrentLazy::new(|| *middle.force() + 1);
+        let middle = ConcurrentLazy::new(|| *leaf.force().unwrap() + 1);
+        let root = ConcurrentLazy::new(|| *middle.force().unwrap() + 1);
 
-        assert_eq!(*root.force(), 42);
-        assert_eq!(*middle.force(), 41);
-        assert_eq!(*leaf.force(), 40);
+        assert_eq!(*root.force().unwrap(), 42);
+        assert_eq!(*middle.force().unwrap(), 41);
+        assert_eq!(*leaf.force().unwrap(), 40);
     }
 
     #[rstest]
@@ -1615,7 +1530,7 @@ mod tests {
         let handles: Vec<_> = (0..32)
             .map(|_| {
                 let lazy = Arc::clone(&lazy);
-                thread::spawn(move || *lazy.force())
+                thread::spawn(move || *lazy.force().unwrap().unwrap())
             })
             .collect();
 
@@ -1644,13 +1559,13 @@ mod tests {
                 let barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
                     barrier.wait();
-                    *lazy.force()
+                    *lazy.force().unwrap().unwrap()
                 })
             })
             .collect();
 
         let lazy_init = Arc::clone(&lazy);
-        let init_handle = thread::spawn(move || *lazy_init.force());
+        let init_handle = thread::spawn(move || *lazy_init.force().unwrap());
 
         for handle in handles {
             assert_eq!(handle.join().unwrap(), 42);
@@ -1669,9 +1584,7 @@ mod tests {
             .map(|_| {
                 let lazy = Arc::clone(&lazy);
                 thread::spawn(move || {
-                    let result =
-                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lazy.force()));
-                    result.is_err() // Should be Err (panic)
+                    lazy.force() == Err(ConcurrentLazyPoisonedError)
                 })
             })
             .collect();
@@ -1679,9 +1592,39 @@ mod tests {
         for handle in handles {
             assert!(
                 handle.join().unwrap(),
-                "Thread should have observed panic/poisoned state"
+                "Thread should have observed typed poisoned state"
             );
         }
+    }
+
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn test_primary_force_under_rayon_returns_same_value() {
+        let lazy = Arc::new(ConcurrentLazy::new(|| 42));
+        let left = Arc::clone(&lazy);
+        let right = Arc::clone(&lazy);
+
+        let (a, b) = rayon::join(
+            || left.force().copied(),
+            || right.force().copied(),
+        );
+
+        assert_eq!(a, Ok(42));
+        assert_eq!(b, Ok(42));
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_primary_force_from_async_blocking_workers_returns_same_value() {
+        let lazy = Arc::new(ConcurrentLazy::new(|| 42));
+        let left = Arc::clone(&lazy);
+        let right = Arc::clone(&lazy);
+
+        let a = tokio::task::spawn_blocking(move || left.force().copied());
+        let b = tokio::task::spawn_blocking(move || right.force().copied());
+
+        assert_eq!(a.await.unwrap(), Ok(42));
+        assert_eq!(b.await.unwrap(), Ok(42));
     }
 
     #[rstest]
@@ -1707,7 +1650,7 @@ mod tests {
         }));
 
         let init = Arc::clone(&lazy);
-        let handle = thread::spawn(move || *init.force());
+        let handle = thread::spawn(move || *init.force().unwrap());
 
         while !started.load(AtomicOrdering::SeqCst) {
             std::thread::yield_now();
@@ -1735,7 +1678,7 @@ mod tests {
             42
         }));
         let init = Arc::clone(&lazy);
-        let init_handle = thread::spawn(move || *init.force());
+        let init_handle = thread::spawn(move || *init.force().unwrap());
 
         while !started.load(AtomicOrdering::SeqCst) {
             std::thread::yield_now();
@@ -1770,7 +1713,7 @@ mod tests {
         }));
 
         let init = Arc::clone(&lazy);
-        let init_handle = std::thread::spawn(move || *init.force());
+        let init_handle = std::thread::spawn(move || *init.force().unwrap());
         while !started.load(AtomicOrdering::SeqCst) {
             std::thread::yield_now();
         }
@@ -1801,7 +1744,7 @@ mod tests {
         }));
 
         let init = Arc::clone(&lazy);
-        let init_handle = std::thread::spawn(move || *init.force());
+        let init_handle = std::thread::spawn(move || *init.force().unwrap());
         while !started.load(AtomicOrdering::SeqCst) {
             tokio::task::yield_now().await;
         }
@@ -1829,7 +1772,7 @@ mod tests {
         }));
 
         let lazy_init = Arc::clone(&lazy);
-        let init_handle = thread::spawn(move || *lazy_init.force());
+        let init_handle = thread::spawn(move || *lazy_init.force().unwrap());
 
         while !started.load(AtomicOrdering::SeqCst) {
             std::thread::sleep(std::time::Duration::from_millis(1));
@@ -1865,7 +1808,7 @@ mod tests {
         let handles: Vec<_> = (0..16)
             .map(|_| {
                 let lazy = Arc::clone(&lazy);
-                thread::spawn(move || *lazy.force())
+                thread::spawn(move || *lazy.force().unwrap().unwrap())
             })
             .collect();
 
@@ -1887,8 +1830,8 @@ mod tests {
             #[test]
             fn prop_concurrent_lazy_memoization(x in any::<i64>()) {
                 let lazy = ConcurrentLazy::new(|| x);
-                let v1 = *lazy.force();
-                let v2 = *lazy.force();
+                let v1 = *lazy.force().unwrap().unwrap();
+                let v2 = *lazy.force().unwrap().unwrap();
                 prop_assert_eq!(v1, v2);
                 prop_assert_eq!(v1, x);
             }
@@ -1898,7 +1841,7 @@ mod tests {
             fn prop_concurrent_lazy_functor_identity(x in any::<i64>()) {
                 let lazy = ConcurrentLazy::new(|| x);
                 let mapped = ConcurrentLazy::new(|| x).map(|v| v);
-                prop_assert_eq!(*lazy.force(), *mapped.force());
+                prop_assert_eq!(*lazy.force().unwrap().unwrap(), *mapped.force().unwrap());
             }
 
             /// Functor composition law: lazy.map(f).map(g) == lazy.map(|x| g(f(x)))
@@ -1908,7 +1851,7 @@ mod tests {
                 let g = |v: i32| v.wrapping_mul(2);
                 let lazy1 = ConcurrentLazy::new(|| x).map(f).map(g);
                 let lazy2 = ConcurrentLazy::new(|| x).map(|v| g(f(v)));
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
 
             /// Monad left identity: pure(a).flat_map(f) == f(a)
@@ -1917,7 +1860,7 @@ mod tests {
                 let f = |v: i32| ConcurrentLazy::new(move || v.wrapping_mul(2));
                 let lazy1 = ConcurrentLazy::pure(x).flat_map(f);
                 let lazy2 = f(x);
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
 
             /// Monad right identity: m.flat_map(pure) == m
@@ -1925,7 +1868,7 @@ mod tests {
             fn prop_concurrent_lazy_monad_right_identity(x in any::<i32>()) {
                 let lazy1 = ConcurrentLazy::new(|| x);
                 let lazy2 = ConcurrentLazy::new(|| x).flat_map(ConcurrentLazy::pure);
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
 
             /// Monad associativity: (m.flat_map(f)).flat_map(g) == m.flat_map(|x| f(x).flat_map(g))
@@ -1935,7 +1878,7 @@ mod tests {
                 let g = |v: i32| ConcurrentLazy::new(move || v.wrapping_mul(2));
                 let lazy1 = ConcurrentLazy::new(|| x).flat_map(f).flat_map(g);
                 let lazy2 = ConcurrentLazy::new(|| x).flat_map(|v| f(v).flat_map(g));
-                prop_assert_eq!(*lazy1.force(), *lazy2.force());
+                prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
             }
         }
     }

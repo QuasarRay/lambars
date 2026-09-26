@@ -28,10 +28,10 @@ mod runtime_regressions {
     #[test]
     fn sc002_nested_distinct_concurrent_lazy_executes_without_poisoning() {
         let inner = ConcurrentLazy::new(|| 41u8);
-        let outer = ConcurrentLazy::new(|| *inner.force() + 1);
+        let outer = ConcurrentLazy::new(|| *inner.force().unwrap() + 1);
 
-        assert_eq!(*outer.force(), 42);
-        assert_eq!(*inner.force(), 41);
+        assert_eq!(*outer.force().unwrap(), 42);
+        assert_eq!(*inner.force().unwrap(), 41);
         assert!(!outer.is_poisoned());
         assert!(!inner.is_poisoned());
     }

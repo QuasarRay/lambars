@@ -22,7 +22,7 @@ An internal `panic!`, `expect`, `unwrap`, or `unreachable!` is acceptable only w
 | `AsyncPool::new`, `with_queue_capacity`, `try_new`, `try_with_queue_capacity` | fallible | invalid capacities return `PoolError::InvalidCapacity`; no constructor panic wrapper remains |
 | `ConcurrentLazy::wait_for` | bounded/fallible | `ConcurrentLazyWaitError` |
 | `ConcurrentLazy::try_force`, `into_inner` | fallible | initializer unwind and same-thread re-entry return `ConcurrentLazyPoisonedError`; shared thread/Rayon/async decision model verified |
-| `ConcurrentLazy::force` | partial convenience | explicitly documented panic behavior remains SC-026 work |
+| `ConcurrentLazy::force`, `try_force`, `into_inner` | fallible | initializer unwind, poisoning, and same-thread re-entry return `ConcurrentLazyPoisonedError`; thread/Rayon/async decision model verified |
 | `Lazy::try_force`, `into_inner` | fallible | initializer panic is caught and returned as `LazyPoisonedError`; `Lazy` is `!Sync` |
 | `Lazy::force`, `try_force`, `force_mut`, `get_mut`, `into_inner` | fallible | initialization/re-entry/poison are represented by `LazyPoisonedError`; `Lazy` remains `!Sync` |
 | `Freer::try_interpret` | fallible | intermediate/final type mismatches and handler/continuation unwinds return `InterpretError`; thread/Rayon/async decision model verified |

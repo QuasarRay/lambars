@@ -17,9 +17,9 @@ proptest! {
     fn prop_concurrent_lazy_idempotence(value in any::<i32>()) {
         let lazy = ConcurrentLazy::new(move || value);
 
-        let first = *lazy.force();
-        let second = *lazy.force();
-        let third = *lazy.force();
+        let first = *lazy.force().unwrap();
+        let second = *lazy.force().unwrap();
+        let third = *lazy.force().unwrap();
 
         prop_assert_eq!(first, second);
         prop_assert_eq!(second, third);
@@ -32,8 +32,8 @@ proptest! {
     fn prop_concurrent_lazy_idempotence_string(value in any::<String>()) {
         let lazy = ConcurrentLazy::new(move || value.clone());
 
-        let first = lazy.force().clone();
-        let second = lazy.force().clone();
+        let first = lazy.force().unwrap().clone();
+        let second = lazy.force().unwrap().clone();
 
         prop_assert_eq!(first, second);
     }
@@ -77,7 +77,7 @@ proptest! {
         let handles: Vec<_> = (0..10)
             .map(|_| {
                 let lazy = Arc::clone(&lazy);
-                thread::spawn(move || *lazy.force())
+                thread::spawn(move || *lazy.force().unwrap())
             })
             .collect();
 
@@ -104,7 +104,7 @@ proptest! {
         let handles: Vec<_> = (0..10)
             .map(|_| {
                 let lazy = Arc::clone(&lazy);
-                thread::spawn(move || *lazy.force())
+                thread::spawn(move || *lazy.force().unwrap())
             })
             .collect();
 
@@ -128,7 +128,7 @@ proptest! {
         let mapped = ConcurrentLazy::new(move || value).map(|x| x);
 
         // We need to compare the forced values since ConcurrentLazy doesn't implement Eq
-        prop_assert_eq!(*lazy.force(), *mapped.force());
+        prop_assert_eq!(*lazy.force().unwrap(), *mapped.force().unwrap());
     }
 }
 
@@ -145,7 +145,7 @@ proptest! {
         let left = lazy1.map(function1).map(function2);
         let right = lazy2.map(|x| function2(function1(x)));
 
-        prop_assert_eq!(*left.force(), *right.force());
+        prop_assert_eq!(*left.force().unwrap(), *right.force().unwrap());
     }
 }
 
@@ -162,7 +162,7 @@ proptest! {
         let left = lazy1.map(function1).map(function2);
         let right = lazy2.map(|x| function2(function1(x)));
 
-        prop_assert_eq!(*left.force(), *right.force());
+        prop_assert_eq!(*left.force().unwrap(), *right.force().unwrap());
     }
 }
 
@@ -179,7 +179,7 @@ proptest! {
         let left = ConcurrentLazy::pure(value).flat_map(function);
         let right = function(value);
 
-        prop_assert_eq!(*left.force(), *right.force());
+        prop_assert_eq!(*left.force().unwrap(), *right.force().unwrap());
     }
 }
 
@@ -190,7 +190,7 @@ proptest! {
         let lazy = ConcurrentLazy::new(move || value);
         let flat_mapped = ConcurrentLazy::new(move || value).flat_map(ConcurrentLazy::new_with_value);
 
-        prop_assert_eq!(*lazy.force(), *flat_mapped.force());
+        prop_assert_eq!(*lazy.force().unwrap(), *flat_mapped.force().unwrap());
     }
 }
 
@@ -208,7 +208,7 @@ proptest! {
         let left = lazy1.flat_map(function1).flat_map(function2);
         let right = lazy2.flat_map(|x| function1(x).flat_map(function2));
 
-        prop_assert_eq!(*left.force(), *right.force());
+        prop_assert_eq!(*left.force().unwrap(), *right.force().unwrap());
     }
 }
 
@@ -224,7 +224,7 @@ proptest! {
         let lazy2 = ConcurrentLazy::new(move || value2);
         let zipped = lazy1.zip(lazy2);
 
-        prop_assert_eq!(*zipped.force(), (value1, value2));
+        prop_assert_eq!(*zipped.force().unwrap(), (value1, value2));
     }
 }
 
@@ -239,7 +239,7 @@ proptest! {
         let lazy2 = ConcurrentLazy::new(move || value2);
         let combined = lazy1.zip_with(lazy2, |a, b| a.wrapping_add(b));
 
-        prop_assert_eq!(*combined.force(), value1.wrapping_add(value2));
+        prop_assert_eq!(*combined.force().unwrap(), value1.wrapping_add(value2));
     }
 }
 
@@ -254,7 +254,7 @@ proptest! {
         let lazy1 = ConcurrentLazy::new_with_value(value);
         let lazy2 = ConcurrentLazy::pure(value);
 
-        prop_assert_eq!(*lazy1.force(), *lazy2.force());
+        prop_assert_eq!(*lazy1.force().unwrap(), *lazy2.force().unwrap());
     }
 }
 
@@ -297,7 +297,7 @@ proptest! {
     fn prop_concurrent_lazy_force_get_consistency(value in any::<i32>()) {
         let lazy = ConcurrentLazy::new(move || value);
 
-        let forced = *lazy.force();
+        let forced = *lazy.force().unwrap();
         let gotten = *lazy.get().unwrap();
 
         prop_assert_eq!(forced, gotten);
@@ -313,7 +313,7 @@ proptest! {
 
         let mapped = lazy.map(function);
 
-        prop_assert_eq!(*mapped.force(), function(value));
+        prop_assert_eq!(*mapped.force().unwrap(), function(value));
     }
 }
 
@@ -329,7 +329,7 @@ proptest! {
         let mapped = lazy1.map(function);
         let flat_mapped = lazy2.flat_map(|x| ConcurrentLazy::new_with_value(function(x)));
 
-        prop_assert_eq!(*mapped.force(), *flat_mapped.force());
+        prop_assert_eq!(*mapped.force().unwrap(), *flat_mapped.force().unwrap());
     }
 }
 
@@ -344,7 +344,7 @@ proptest! {
         let lazy1 = ConcurrentLazy::new(move || value);
         let lazy2 = ConcurrentLazy::new(move || value);
 
-        let forced = *lazy1.force();
+        let forced = *lazy1.force().unwrap();
         let into_inner = lazy2.into_inner().unwrap();
 
         prop_assert_eq!(forced, into_inner);
