@@ -28,27 +28,29 @@ use lambars::effect::async_io::pool::{AsyncPool, PoolError};
 
 #[rstest]
 fn new_creates_pool_with_specified_capacity() {
-    let pool = AsyncPool::<i32>::new(128);
+    let pool = AsyncPool::<i32>::new(128).unwrap();
     assert_eq!(pool.capacity(), 128);
     assert_eq!(pool.queue_capacity(), 128);
 }
 
 #[rstest]
 fn new_creates_empty_pool() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     assert_eq!(pool.capacity(), 10);
 }
 
 #[rstest]
 fn new_with_zero_capacity_returns_error() {
-    let result = AsyncPool::<i32>::try_new(0);
-    assert!(result.is_err());
+    let result = AsyncPool::<i32>::new(0);
     assert_eq!(result.unwrap_err(), PoolError::InvalidCapacity);
+
+    let legacy_fallible = AsyncPool::<i32>::try_new(0);
+    assert_eq!(legacy_fallible.unwrap_err(), PoolError::InvalidCapacity);
 }
 
 #[rstest]
 fn new_with_one_capacity_succeeds() {
-    let pool = AsyncPool::<i32>::new(1);
+    let pool = AsyncPool::<i32>::new(1).unwrap();
     assert_eq!(pool.capacity(), 1);
 }
 
@@ -59,22 +61,20 @@ fn new_with_one_capacity_succeeds() {
 #[rstest]
 fn with_queue_capacity_creates_pool_with_different_capacities() {
     // queue_capacity must be <= capacity
-    let pool = AsyncPool::<i32>::with_queue_capacity(50, 10);
+    let pool = AsyncPool::<i32>::with_queue_capacity(50, 10).unwrap();
     assert_eq!(pool.capacity(), 50);
     assert_eq!(pool.queue_capacity(), 10);
 }
 
 #[rstest]
 fn with_queue_capacity_zero_capacity_returns_error() {
-    let result = AsyncPool::<i32>::try_with_queue_capacity(0, 10);
-    assert!(result.is_err());
+    let result = AsyncPool::<i32>::with_queue_capacity(0, 10);
     assert_eq!(result.unwrap_err(), PoolError::InvalidCapacity);
 }
 
 #[rstest]
 fn with_queue_capacity_zero_queue_capacity_returns_error() {
-    let result = AsyncPool::<i32>::try_with_queue_capacity(10, 0);
-    assert!(result.is_err());
+    let result = AsyncPool::<i32>::with_queue_capacity(10, 0);
     assert_eq!(result.unwrap_err(), PoolError::InvalidCapacity);
 }
 
@@ -84,14 +84,14 @@ fn with_queue_capacity_zero_queue_capacity_returns_error() {
 
 #[rstest]
 fn try_spawn_adds_future_to_queue() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     let result = pool.try_spawn(async { 42 });
     assert!(result.is_ok());
 }
 
 #[rstest]
 fn try_spawn_multiple_futures() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     for i in 0..5 {
         pool.try_spawn(async move { i }).unwrap();
     }
@@ -99,7 +99,7 @@ fn try_spawn_multiple_futures() {
 
 #[rstest]
 fn try_spawn_returns_error_when_queue_is_full() {
-    let pool = AsyncPool::<i32>::new(2);
+    let pool = AsyncPool::<i32>::new(2).unwrap();
     pool.try_spawn(async { 1 }).unwrap();
     pool.try_spawn(async { 2 }).unwrap();
     let result = pool.try_spawn(async { 3 });
@@ -110,7 +110,7 @@ fn try_spawn_returns_error_when_queue_is_full() {
 #[rstest]
 fn try_spawn_respects_queue_capacity_not_capacity() {
     // queue_capacity=3, capacity=5 (queue_capacity must be <= capacity)
-    let pool = AsyncPool::<i32>::with_queue_capacity(5, 3);
+    let pool = AsyncPool::<i32>::with_queue_capacity(5, 3).unwrap();
     // Queue capacity is 3, so we can add 3 futures
     for i in 0..3 {
         pool.try_spawn(async move { i }).unwrap();
@@ -127,7 +127,7 @@ fn try_spawn_respects_queue_capacity_not_capacity() {
 #[rstest]
 #[tokio::test]
 async fn spawn_adds_future_when_space_available() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     let result = pool.spawn(async { 42 }).await;
     assert!(result.is_ok());
     assert_eq!(pool.queue_len(), 1);
@@ -136,7 +136,7 @@ async fn spawn_adds_future_when_space_available() {
 #[rstest]
 #[tokio::test]
 async fn spawn_multiple_futures() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     for i in 0..5 {
         pool.spawn(async move { i }).await.unwrap();
     }
@@ -146,7 +146,7 @@ async fn spawn_multiple_futures() {
 #[rstest]
 #[tokio::test]
 async fn spawn_waits_when_queue_full_then_succeeds_after_drain() {
-    let pool = AsyncPool::<i32>::with_queue_capacity(2, 2);
+    let pool = AsyncPool::<i32>::with_queue_capacity(2, 2).unwrap();
 
     // Fill the queue
     pool.spawn(async { 1 }).await.unwrap();
@@ -161,7 +161,7 @@ async fn spawn_waits_when_queue_full_then_succeeds_after_drain() {
 #[rstest]
 #[tokio::test]
 async fn spawn_can_be_cancelled_via_timeout() {
-    let pool = AsyncPool::<i32>::with_queue_capacity(2, 1);
+    let pool = AsyncPool::<i32>::with_queue_capacity(2, 1).unwrap();
 
     // Fill the queue
     pool.try_spawn(async { 1 }).unwrap();
@@ -182,7 +182,7 @@ async fn spawn_can_be_cancelled_via_timeout() {
 #[rstest]
 #[tokio::test]
 async fn run_all_executes_all_futures() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     pool.try_spawn(async { 1 }).unwrap();
     pool.try_spawn(async { 2 }).unwrap();
     pool.try_spawn(async { 3 }).unwrap();
@@ -198,7 +198,7 @@ async fn run_all_executes_all_futures() {
 #[rstest]
 #[tokio::test]
 async fn run_all_returns_empty_vec_for_empty_pool() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     let results = pool.run_all().await;
     assert!(results.is_empty());
 }
@@ -206,7 +206,7 @@ async fn run_all_returns_empty_vec_for_empty_pool() {
 #[rstest]
 #[tokio::test]
 async fn run_all_clears_queue_after_execution() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     pool.try_spawn(async { 1 }).unwrap();
     pool.try_spawn(async { 2 }).unwrap();
 
@@ -218,7 +218,7 @@ async fn run_all_clears_queue_after_execution() {
 #[tokio::test]
 async fn run_all_executes_futures_concurrently() {
     let counter = Arc::new(AtomicUsize::new(0));
-    let mut pool = AsyncPool::new(10);
+    let mut pool = AsyncPool::new(10).unwrap();
 
     for _ in 0..5 {
         let counter_clone = counter.clone();
@@ -235,7 +235,7 @@ async fn run_all_executes_futures_concurrently() {
 #[rstest]
 #[tokio::test]
 async fn run_all_with_async_sleep() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     pool.try_spawn(async {
         tokio::time::sleep(Duration::from_millis(10)).await;
         1
@@ -258,7 +258,7 @@ async fn run_all_limits_concurrency_to_capacity() {
     let max_concurrent = Arc::new(AtomicUsize::new(0));
     // capacity=10, queue_capacity=3 (queue_capacity must be <= capacity)
     // We'll use capacity=3 and only spawn 3 tasks to stay within queue limit
-    let mut pool = AsyncPool::with_queue_capacity(3, 3);
+    let mut pool = AsyncPool::with_queue_capacity(3, 3).unwrap();
 
     for i in 0..3 {
         let active = active_count.clone();
@@ -301,7 +301,7 @@ async fn run_all_limits_concurrency_to_capacity() {
 async fn run_buffered_limits_concurrency() {
     let active_count = Arc::new(AtomicUsize::new(0));
     let max_concurrent = Arc::new(AtomicUsize::new(0));
-    let mut pool = AsyncPool::new(10);
+    let mut pool = AsyncPool::new(10).unwrap();
 
     for i in 0..10 {
         let active = active_count.clone();
@@ -339,7 +339,7 @@ async fn run_buffered_limits_concurrency() {
 #[tokio::test]
 async fn run_buffered_with_limit_one_runs_sequentially() {
     let order = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let mut pool = AsyncPool::new(5);
+    let mut pool = AsyncPool::new(5).unwrap();
 
     for i in 0..5 {
         let order_clone = order.clone();
@@ -360,7 +360,7 @@ async fn run_buffered_with_limit_one_runs_sequentially() {
 #[rstest]
 #[tokio::test]
 async fn run_buffered_with_zero_limit_returns_error() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     let result = pool.run_buffered(0).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), PoolError::InvalidConcurrencyLimit);
@@ -369,7 +369,7 @@ async fn run_buffered_with_zero_limit_returns_error() {
 #[rstest]
 #[tokio::test]
 async fn run_buffered_returns_empty_vec_for_empty_pool() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     let results = pool.run_buffered(5).await.unwrap();
     assert!(results.is_empty());
 }
@@ -377,7 +377,7 @@ async fn run_buffered_returns_empty_vec_for_empty_pool() {
 #[rstest]
 #[tokio::test]
 async fn run_buffered_clears_queue_after_execution() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
     pool.try_spawn(async { 1 }).unwrap();
     pool.try_spawn(async { 2 }).unwrap();
 
@@ -442,7 +442,7 @@ async fn pool_is_send() {
 #[rstest]
 #[tokio::test]
 async fn pool_results_are_collected_correctly_with_many_tasks() {
-    let mut pool = AsyncPool::<usize>::new(100);
+    let mut pool = AsyncPool::<usize>::new(100).unwrap();
     for i in 0..100 {
         pool.try_spawn(async move { i }).unwrap();
     }
@@ -463,7 +463,7 @@ async fn pool_results_are_collected_correctly_with_many_tasks() {
 #[rstest]
 #[tokio::test]
 async fn pool_can_be_reused_after_run_all() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
 
     // First batch
     pool.try_spawn(async { 1 }).unwrap();
@@ -482,7 +482,7 @@ async fn pool_can_be_reused_after_run_all() {
 #[rstest]
 #[tokio::test]
 async fn pool_can_be_reused_after_run_buffered() {
-    let mut pool = AsyncPool::<i32>::new(10);
+    let mut pool = AsyncPool::<i32>::new(10).unwrap();
 
     // First batch
     pool.try_spawn(async { 1 }).unwrap();
@@ -510,7 +510,7 @@ async fn law_bounded_inflight() {
     let queue_capacity = 20; // queue_capacity must be <= capacity
     let active_count = Arc::new(AtomicUsize::new(0));
     let max_concurrent = Arc::new(AtomicUsize::new(0));
-    let mut pool = AsyncPool::with_queue_capacity(capacity, queue_capacity);
+    let mut pool = AsyncPool::with_queue_capacity(capacity, queue_capacity).unwrap();
 
     for _ in 0..queue_capacity {
         let active = active_count.clone();
@@ -548,7 +548,7 @@ async fn law_bounded_inflight() {
 #[tokio::test]
 async fn law_bounded_queue() {
     let queue_capacity = 5;
-    let pool = AsyncPool::<i32>::with_queue_capacity(10, queue_capacity);
+    let pool = AsyncPool::<i32>::with_queue_capacity(10, queue_capacity).unwrap();
 
     // Fill up to queue capacity
     for i in 0..queue_capacity {
@@ -569,7 +569,7 @@ async fn law_bounded_queue() {
 async fn law_total_bounded() {
     let capacity = 5;
     let queue_capacity = 3; // queue_capacity must be <= capacity
-    let pool = AsyncPool::<i32>::with_queue_capacity(capacity, queue_capacity);
+    let pool = AsyncPool::<i32>::with_queue_capacity(capacity, queue_capacity).unwrap();
 
     // We can only queue up to queue_capacity
     for i in 0..queue_capacity {
@@ -591,7 +591,7 @@ async fn law_total_bounded() {
 #[rstest]
 #[tokio::test]
 async fn queue_len_returns_correct_count() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     assert_eq!(pool.queue_len(), 0);
 
     pool.try_spawn(async { 1 }).unwrap();
@@ -605,7 +605,7 @@ async fn queue_len_returns_correct_count() {
 #[rstest]
 #[tokio::test]
 async fn is_queue_empty_returns_correct_value() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
     assert!(pool.is_queue_empty());
 
     pool.try_spawn(async { 1 }).unwrap();
@@ -615,7 +615,7 @@ async fn is_queue_empty_returns_correct_value() {
 #[rstest]
 #[tokio::test]
 async fn is_queue_full_returns_correct_value() {
-    let pool = AsyncPool::<i32>::with_queue_capacity(10, 2);
+    let pool = AsyncPool::<i32>::with_queue_capacity(10, 2).unwrap();
     assert!(!pool.is_queue_full());
 
     pool.try_spawn(async { 1 }).unwrap();
@@ -632,7 +632,7 @@ async fn is_queue_full_returns_correct_value() {
 #[rstest]
 fn debug_format_shows_capacities() {
     // queue_capacity must be <= capacity
-    let pool = AsyncPool::<i32>::with_queue_capacity(10, 5);
+    let pool = AsyncPool::<i32>::with_queue_capacity(10, 5).unwrap();
     let debug = format!("{:?}", pool);
     assert!(debug.contains("AsyncPool"));
     assert!(debug.contains("capacity: 10"));
@@ -646,7 +646,7 @@ fn debug_format_shows_capacities() {
 #[rstest]
 #[tokio::test]
 async fn permits_are_returned_after_run_all() {
-    let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 3);
+    let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 3).unwrap();
 
     // Fill the queue
     pool.try_spawn(async { 1 }).unwrap();
@@ -668,7 +668,7 @@ async fn permits_are_returned_after_run_all() {
 #[rstest]
 #[tokio::test]
 async fn permits_are_returned_after_run_buffered() {
-    let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 3);
+    let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 3).unwrap();
 
     // Fill the queue
     pool.try_spawn(async { 1 }).unwrap();
@@ -712,7 +712,7 @@ async fn spawn_waits_on_full_queue_and_drain_allows_new_spawn() {
     use tokio::sync::oneshot;
 
     // Create pool with capacity=2, queue_capacity=2 so we have room for the waiting spawn
-    let pool = Arc::new(AsyncPool::<i32>::with_queue_capacity(2, 2));
+    let pool = Arc::new(AsyncPool::<i32>::with_queue_capacity(2, 2).unwrap());
 
     // Fill the queue
     pool.try_spawn(async { 1 }).unwrap();
@@ -729,7 +729,7 @@ async fn spawn_waits_on_full_queue_and_drain_allows_new_spawn() {
     );
 
     // Now test with a fresh pool that we can drain
-    let mut pool2 = AsyncPool::<i32>::with_queue_capacity(3, 2);
+    let mut pool2 = AsyncPool::<i32>::with_queue_capacity(3, 2).unwrap();
     pool2.try_spawn(async { 10 }).unwrap();
     pool2.try_spawn(async { 20 }).unwrap();
     assert!(pool2.is_queue_full());
@@ -767,7 +767,7 @@ async fn spawn_waits_on_full_queue_and_drain_allows_new_spawn() {
 #[rstest]
 #[tokio::test]
 async fn spawn_with_async_returns_ok() {
-    let pool = AsyncPool::<i32>::new(10);
+    let pool = AsyncPool::<i32>::new(10).unwrap();
 
     // spawn is now async fn, not returning AsyncIO
     let result = pool.spawn(async { 42 }).await;
@@ -797,7 +797,7 @@ async fn spawn_with_async_returns_ok() {
 async fn spawn_cancel_does_not_leak_semaphore() {
     use std::sync::atomic::AtomicBool;
 
-    let pool = Arc::new(AsyncPool::<i32>::with_queue_capacity(2, 1));
+    let pool = Arc::new(AsyncPool::<i32>::with_queue_capacity(2, 1).unwrap());
 
     // Fill the queue to capacity
     pool.try_spawn(async { 1 }).unwrap();
@@ -832,7 +832,7 @@ async fn spawn_cancel_does_not_leak_semaphore() {
     assert_eq!(pool.try_spawn(async { 3 }), Err(PoolError::QueueFull));
 
     // Now test with a pool we can drain
-    let mut pool2 = AsyncPool::<i32>::with_queue_capacity(2, 1);
+    let mut pool2 = AsyncPool::<i32>::with_queue_capacity(2, 1).unwrap();
     pool2.try_spawn(async { 10 }).unwrap();
     assert!(pool2.is_queue_full());
 
@@ -875,7 +875,7 @@ async fn spawn_drain_cycle_works_correctly() {
     // Test 1: Verify multiple spawns succeed when queue has space
     // This tests the basic case without backpressure
     {
-        let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 5);
+        let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 5).unwrap();
 
         // Spawn 5 tasks (fills the queue)
         for i in 1..=5 {
@@ -895,7 +895,7 @@ async fn spawn_drain_cycle_works_correctly() {
 
     // Test 2: Verify multiple waiters timeout when queue is full (backpressure)
     {
-        let pool = Arc::new(AsyncPool::<i32>::with_queue_capacity(5, 2));
+        let pool = Arc::new(AsyncPool::<i32>::with_queue_capacity(5, 2).unwrap());
 
         // Fill the queue
         pool.try_spawn(async { 1 }).unwrap();
@@ -940,7 +940,7 @@ async fn spawn_drain_cycle_works_correctly() {
     // Test 3: Full integration test with spawn-drain cycle
     // Demonstrates that spawns succeed when space is available
     {
-        let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 3);
+        let mut pool = AsyncPool::<i32>::with_queue_capacity(10, 3).unwrap();
 
         // First batch: fill the queue
         pool.spawn(async { 1 }).await.unwrap();
@@ -981,7 +981,7 @@ async fn spawn_drain_cycle_works_correctly() {
 
     // Test 4: Verify permits are correctly managed across multiple drain cycles
     {
-        let mut pool = AsyncPool::<i32>::with_queue_capacity(5, 2);
+        let mut pool = AsyncPool::<i32>::with_queue_capacity(5, 2).unwrap();
 
         // Cycle 1
         pool.try_spawn(async { 100 }).unwrap();

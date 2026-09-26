@@ -46,7 +46,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-023 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-024 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-025 | remediation in branch | safety/06-release-assurance |
-| SC-026 | partial remediation | safety/17-panic-contract: explicit panic policy; AsyncPool enqueue closure is typed; Kani/Verus execution-mode proofs; Lazy and ConcurrentLazy result paths fixed; partial force/force_mut and panic-only convenience surfaces remain; Freer try_interpret fixed |
+| SC-026 | partial remediation | safety/17-panic-contract: explicit panic policy; AsyncPool enqueue closure is typed; Kani/Verus execution-mode proofs; Lazy and ConcurrentLazy result paths fixed; partial force/force_mut and Freer::interpret remain; AsyncPool constructors are now typed |
 | SC-027 | remediation in branch | safety/16-runtime-fallibility: fallible global/handle/blocking APIs + unwind-to-error + thread/Rayon/async classifier proofs |
 | SC-028 | remediation in branch | safety/14-concurrent-lazy-bounded: bounded thread/Rayon wait + Tokio spawn-blocking bridge + Kani/Verus classifier proofs |
 | SC-029 | remediation in branch | safety/11-hash-hardening: insecure hashers retired; legacy flags are no-op; Kani/Verus keyed-mode invariants |

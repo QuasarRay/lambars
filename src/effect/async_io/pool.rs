@@ -42,7 +42,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let mut pool = AsyncPool::new(128);
+//!     let mut pool = AsyncPool::new(128).unwrap();
 //!
 //!     // Spawn futures into the pool (waits if queue is full)
 //!     pool.spawn(async { 1 }).await.unwrap();
@@ -63,7 +63,7 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     // capacity=4, queue_capacity=3 (queue_capacity must be <= capacity)
-//!     let mut pool = AsyncPool::with_queue_capacity(4, 3);
+//!     let mut pool = AsyncPool::with_queue_capacity(4, 3).unwrap();
 //!
 //!     // These will succeed (within queue capacity of 3)
 //!     assert!(pool.try_spawn(async { 1 }).is_ok());
@@ -167,6 +167,16 @@ pub const fn pool_enqueue_decision(
     }
 }
 
+/// Returns whether an AsyncPool capacity pair is valid.
+///
+/// This predicate is used directly by the production constructors and by the
+/// Kani/Verus regression models.
+#[doc(hidden)]
+#[must_use]
+pub const fn pool_capacity_is_valid(capacity: usize, queue_capacity: usize) -> bool {
+    capacity > 0 && queue_capacity > 0 && queue_capacity <= capacity
+}
+
 // =============================================================================
 // Type Aliases
 // =============================================================================
@@ -229,7 +239,7 @@ type BoxedFuture<A> = Pin<Box<dyn Future<Output = A> + Send>>;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let mut pool = AsyncPool::new(10);
+///     let mut pool = AsyncPool::new(10).unwrap();
 ///
 ///     for i in 0..10 {
 ///         pool.spawn(async move { i * 2 }).await.unwrap();
@@ -272,54 +282,46 @@ impl<A> AsyncPool<A> {
     ///
     /// The `queue_capacity` defaults to the same value as `capacity`.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `capacity` - The maximum number of concurrent executions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `capacity` is 0. Use `try_new` for a non-panicking version.
+    /// Returns [`PoolError::InvalidCapacity`] when `capacity == 0`.
     ///
     /// # Examples
     ///
     /// ```rust,ignore
     /// use lambars::effect::async_io::pool::AsyncPool;
     ///
-    /// let pool = AsyncPool::<i32>::new(128);
+    /// let pool = AsyncPool::<i32>::new(128)?;
     /// assert_eq!(pool.capacity(), 128);
     /// assert_eq!(pool.queue_capacity(), 128);
+    /// # Ok::<(), lambars::effect::async_io::pool::PoolError>(())
     /// ```
-    #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        Self::try_new(capacity).expect("AsyncPool capacity must be greater than 0")
+    pub fn new(capacity: usize) -> Result<Self, PoolError> {
+        Self::try_new(capacity)
     }
 
     /// Creates a new `AsyncPool` with separate capacity and queue capacity.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `capacity` - The maximum number of concurrent executions.
-    /// * `queue_capacity` - The maximum number of tasks in the queue.
-    ///   Must be `<= capacity` to satisfy the memory bound (inflight + queued <= 2 * capacity).
-    ///
-    /// # Panics
-    ///
-    /// Panics if either capacity is 0 or if `queue_capacity > capacity`.
+    /// Returns [`PoolError::InvalidCapacity`] when either capacity is zero or
+    /// `queue_capacity > capacity`.
     ///
     /// # Examples
     ///
     /// ```rust,ignore
     /// use lambars::effect::async_io::pool::AsyncPool;
     ///
-    /// let pool = AsyncPool::<i32>::with_queue_capacity(10, 5);
+    /// let pool = AsyncPool::<i32>::with_queue_capacity(10, 5)?;
     /// assert_eq!(pool.capacity(), 10);
     /// assert_eq!(pool.queue_capacity(), 5);
+    /// # Ok::<(), lambars::effect::async_io::pool::PoolError>(())
     /// ```
-    #[must_use]
-    pub fn with_queue_capacity(capacity: usize, queue_capacity: usize) -> Self {
-        Self::try_with_queue_capacity(capacity, queue_capacity).expect(
-            "AsyncPool: capacity > 0, queue_capacity > 0, queue_capacity <= capacity required",
-        )
+    pub fn with_queue_capacity(
+        capacity: usize,
+        queue_capacity: usize,
+    ) -> Result<Self, PoolError> {
+        Self::try_with_queue_capacity(capacity, queue_capacity)
     }
 
     /// Tries to create a new `AsyncPool` with the specified capacity.
@@ -371,7 +373,7 @@ impl<A> AsyncPool<A> {
         capacity: usize,
         queue_capacity: usize,
     ) -> Result<Self, PoolError> {
-        if capacity == 0 || queue_capacity == 0 || queue_capacity > capacity {
+        if !pool_capacity_is_valid(capacity, queue_capacity) {
             return Err(PoolError::InvalidCapacity);
         }
 
@@ -392,7 +394,7 @@ impl<A> AsyncPool<A> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let pool = AsyncPool::<i32>::new(100);
+    /// let pool = AsyncPool::<i32>::new(100)?;
     /// assert_eq!(pool.capacity(), 100);
     /// ```
     #[must_use]
@@ -406,7 +408,7 @@ impl<A> AsyncPool<A> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let pool = AsyncPool::<i32>::with_queue_capacity(10, 50);
+    /// let pool = AsyncPool::<i32>::with_queue_capacity(10, 50).unwrap();
     /// assert_eq!(pool.queue_capacity(), 50);
     /// ```
     #[must_use]
@@ -470,7 +472,7 @@ impl<A: Send + 'static> AsyncPool<A> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let mut pool = AsyncPool::<i32>::new(10);
+    /// let mut pool = AsyncPool::<i32>::new(10)?;
     /// pool.spawn(async { 42 }).await.unwrap();
     /// ```
     ///
@@ -479,7 +481,7 @@ impl<A: Send + 'static> AsyncPool<A> {
     /// ```rust,ignore
     /// use tokio::time::{timeout, Duration};
     ///
-    /// let mut pool = AsyncPool::<i32>::new(2);
+    /// let mut pool = AsyncPool::<i32>::new(2).unwrap();
     /// // Fill the queue
     /// pool.try_spawn(async { 1 }).unwrap();
     /// pool.try_spawn(async { 2 }).unwrap();
@@ -532,7 +534,7 @@ impl<A: Send + 'static> AsyncPool<A> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let pool = AsyncPool::<i32>::new(1);
+    /// let pool = AsyncPool::<i32>::new(1).unwrap();
     /// assert!(pool.try_spawn(async { 1 }).is_ok());
     /// assert_eq!(pool.try_spawn(async { 2 }), Err(PoolError::QueueFull));
     /// ```
@@ -578,7 +580,7 @@ impl<A: Send + 'static> AsyncPool<A> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let mut pool = AsyncPool::<i32>::new(10);
+    /// let mut pool = AsyncPool::<i32>::new(10)?;
     /// pool.try_spawn(async { 1 }).unwrap();
     /// pool.try_spawn(async { 2 }).unwrap();
     ///
@@ -634,7 +636,7 @@ impl<A: Send + 'static> AsyncPool<A> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let mut pool = AsyncPool::<i32>::new(100);
+    /// let mut pool = AsyncPool::<i32>::new(100)?;
     /// for i in 0..100 {
     ///     pool.try_spawn(async move { i }).unwrap();
     /// }
@@ -691,15 +693,17 @@ mod tests {
 
     #[rstest]
     fn new_creates_pool_with_capacity() {
-        let pool = AsyncPool::<i32>::new(10);
+        let pool = AsyncPool::<i32>::new(10).unwrap();
         assert_eq!(pool.capacity(), 10);
         assert_eq!(pool.queue_capacity(), 10);
     }
 
     #[rstest]
-    #[should_panic(expected = "AsyncPool capacity must be greater than 0")]
-    fn new_panics_on_zero_capacity() {
-        let _ = AsyncPool::<i32>::new(0);
+    fn new_returns_error_on_zero_capacity() {
+        assert_eq!(
+            AsyncPool::<i32>::new(0).unwrap_err(),
+            PoolError::InvalidCapacity
+        );
     }
 
     // =========================================================================
@@ -708,33 +712,33 @@ mod tests {
 
     #[rstest]
     fn with_queue_capacity_creates_pool_with_different_capacities() {
-        let pool = AsyncPool::<i32>::with_queue_capacity(10, 5);
+        let pool = AsyncPool::<i32>::with_queue_capacity(10, 5).unwrap();
         assert_eq!(pool.capacity(), 10);
         assert_eq!(pool.queue_capacity(), 5);
     }
 
     #[rstest]
-    #[should_panic(
-        expected = "AsyncPool: capacity > 0, queue_capacity > 0, queue_capacity <= capacity required"
-    )]
-    fn with_queue_capacity_panics_on_zero_capacity() {
-        let _ = AsyncPool::<i32>::with_queue_capacity(0, 10);
+    fn with_queue_capacity_returns_error_on_zero_capacity() {
+        assert_eq!(
+            AsyncPool::<i32>::with_queue_capacity(0, 10).unwrap_err(),
+            PoolError::InvalidCapacity
+        );
     }
 
     #[rstest]
-    #[should_panic(
-        expected = "AsyncPool: capacity > 0, queue_capacity > 0, queue_capacity <= capacity required"
-    )]
-    fn with_queue_capacity_panics_on_zero_queue_capacity() {
-        let _ = AsyncPool::<i32>::with_queue_capacity(10, 0);
+    fn with_queue_capacity_returns_error_on_zero_queue_capacity() {
+        assert_eq!(
+            AsyncPool::<i32>::with_queue_capacity(10, 0).unwrap_err(),
+            PoolError::InvalidCapacity
+        );
     }
 
     #[rstest]
-    #[should_panic(
-        expected = "AsyncPool: capacity > 0, queue_capacity > 0, queue_capacity <= capacity required"
-    )]
-    fn with_queue_capacity_panics_when_queue_capacity_exceeds_capacity() {
-        let _ = AsyncPool::<i32>::with_queue_capacity(10, 50);
+    fn with_queue_capacity_returns_error_when_queue_exceeds_capacity() {
+        assert_eq!(
+            AsyncPool::<i32>::with_queue_capacity(10, 50).unwrap_err(),
+            PoolError::InvalidCapacity
+        );
     }
 
     // =========================================================================
@@ -795,7 +799,7 @@ mod tests {
 
     #[rstest]
     fn try_spawn_adds_future_to_queue() {
-        let pool = AsyncPool::<i32>::new(5);
+        let pool = AsyncPool::<i32>::new(5).unwrap();
         let result = pool.try_spawn(async { 1 });
         assert!(result.is_ok());
         assert_eq!(pool.queue_len(), 1);
@@ -803,7 +807,7 @@ mod tests {
 
     #[rstest]
     fn try_spawn_fails_when_queue_full() {
-        let pool = AsyncPool::<i32>::new(1);
+        let pool = AsyncPool::<i32>::new(1).unwrap();
         pool.try_spawn(async { 1 }).unwrap();
         let result = pool.try_spawn(async { 2 });
         assert_eq!(result, Err(PoolError::QueueFull));
@@ -811,7 +815,7 @@ mod tests {
 
     #[rstest]
     fn try_spawn_respects_queue_capacity() {
-        let pool = AsyncPool::<i32>::with_queue_capacity(10, 2);
+        let pool = AsyncPool::<i32>::with_queue_capacity(10, 2).unwrap();
         pool.try_spawn(async { 1 }).unwrap();
         pool.try_spawn(async { 2 }).unwrap();
         let result = pool.try_spawn(async { 3 });
@@ -824,7 +828,7 @@ mod tests {
 
     #[rstest]
     fn queue_len_reflects_spawned_futures() {
-        let pool = AsyncPool::<i32>::new(10);
+        let pool = AsyncPool::<i32>::new(10).unwrap();
         assert_eq!(pool.queue_len(), 0);
 
         pool.try_spawn(async { 1 }).unwrap();
@@ -836,7 +840,7 @@ mod tests {
 
     #[rstest]
     fn is_queue_empty_returns_true_for_empty_pool() {
-        let pool = AsyncPool::<i32>::new(10);
+        let pool = AsyncPool::<i32>::new(10).unwrap();
         assert!(pool.is_queue_empty());
 
         pool.try_spawn(async { 1 }).unwrap();
@@ -845,7 +849,7 @@ mod tests {
 
     #[rstest]
     fn is_queue_full_returns_true_when_at_capacity() {
-        let pool = AsyncPool::<i32>::with_queue_capacity(10, 2);
+        let pool = AsyncPool::<i32>::with_queue_capacity(10, 2).unwrap();
         assert!(!pool.is_queue_full());
 
         pool.try_spawn(async { 1 }).unwrap();
@@ -885,7 +889,7 @@ mod tests {
 
     #[rstest]
     fn debug_shows_pool_state() {
-        let pool = AsyncPool::<i32>::with_queue_capacity(20, 10);
+        let pool = AsyncPool::<i32>::with_queue_capacity(20, 10).unwrap();
         let debug = format!("{pool:?}");
         assert!(debug.contains("AsyncPool"));
         assert!(debug.contains("capacity: 20"));
