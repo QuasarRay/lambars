@@ -1064,6 +1064,24 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
         })
     }
 
+    /// Total counterpart to [`flat_map`](Self::flat_map).
+    pub fn try_flat_map<U, ResultFunction, G>(
+        self,
+        function: G,
+    ) -> ConcurrentLazy<
+        Result<U, ConcurrentLazyPoisonedError>,
+        impl FnOnce() -> Result<U, ConcurrentLazyPoisonedError>,
+    >
+    where
+        ResultFunction: FnOnce() -> U,
+        G: FnOnce(T) -> ConcurrentLazy<U, ResultFunction>,
+    {
+        ConcurrentLazy::new(move || {
+            let value = self.into_inner()?;
+            function(value).into_inner()
+        })
+    }
+
     /// Combines two lazy values into a lazy tuple.
     ///
     /// # Panics
@@ -1097,6 +1115,20 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                 .expect("ConcurrentLazy: initialization failed");
             (value1, value2)
         })
+    }
+
+    /// Total counterpart to [`zip`](Self::zip).
+    pub fn try_zip<U, OtherFunction>(
+        self,
+        other: ConcurrentLazy<U, OtherFunction>,
+    ) -> ConcurrentLazy<
+        Result<(T, U), ConcurrentLazyPoisonedError>,
+        impl FnOnce() -> Result<(T, U), ConcurrentLazyPoisonedError>,
+    >
+    where
+        OtherFunction: FnOnce() -> U,
+    {
+        ConcurrentLazy::new(move || Ok((self.into_inner()?, other.into_inner()?)))
     }
 
     /// Combines two lazy values using a function.
@@ -1134,7 +1166,27 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                 .expect("ConcurrentLazy: initialization failed");
             function(value1, value2)
         })
+    }    /// Total counterpart to [`zip_with`](Self::zip_with).
+    pub fn try_zip_with<U, V, OtherFunction, CombineFunction>(
+        self,
+        other: ConcurrentLazy<U, OtherFunction>,
+        function: CombineFunction,
+    ) -> ConcurrentLazy<
+        Result<V, ConcurrentLazyPoisonedError>,
+        impl FnOnce() -> Result<V, ConcurrentLazyPoisonedError>,
+    >
+    where
+        OtherFunction: FnOnce() -> U,
+        CombineFunction: FnOnce(T, U) -> V,
+    {
+        ConcurrentLazy::new(move || {
+            let left = self.into_inner()?;
+            let right = other.into_inner()?;
+            Ok(function(left, right))
+        })
     }
+
+
 }
 
 impl<T: Default> Default for ConcurrentLazy<T> {
@@ -1766,6 +1818,76 @@ mod tests {
         for handle in handles {
             assert_eq!(handle.join().unwrap(), 42);
         }
+    }
+
+    #[rstest]
+    fn test_try_flat_map_propagates_poisoning() {
+        let lazy = ConcurrentLazy::new(|| -> i32 { panic!("poison") });
+        let result = lazy.try_flat_map(|value| ConcurrentLazy::new(move || value + 1));
+        assert_eq!(result.force(), &Err(ConcurrentLazyPoisonedError));
+    }
+
+    #[rstest]
+    fn test_try_zip_and_try_zip_with_are_total() {
+        let left = ConcurrentLazy::new(|| -> i32 { panic!("left") });
+        let right = ConcurrentLazy::new(|| 2);
+        assert_eq!(left.try_zip(right).force(), &Err(ConcurrentLazyPoisonedError));
+
+        let left = ConcurrentLazy::new(|| 20);
+        let right = ConcurrentLazy::new(|| 22);
+        assert_eq!(
+            left.try_zip_with(right, |a, b| a + b).force(),
+            &Ok(42)
+        );
+    }
+
+    #[rstest]
+    fn test_try_zip_result_is_safe_under_concurrent_readers() {
+        let result = Arc::new(
+            ConcurrentLazy::new(|| 20)
+                .try_zip_with(ConcurrentLazy::new(|| 22), |a, b| a + b),
+        );
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let result = Arc::clone(&result);
+                thread::spawn(move || result.force().clone())
+            })
+            .collect();
+
+        for handle in handles {
+            assert_eq!(handle.join().unwrap(), Ok(42));
+        }
+    }
+
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn test_try_zip_result_is_safe_under_rayon_readers() {
+        let result = Arc::new(
+            ConcurrentLazy::new(|| 20)
+                .try_zip_with(ConcurrentLazy::new(|| 22), |a, b| a + b),
+        );
+        let left = Arc::clone(&result);
+        let right = Arc::clone(&result);
+        let (a, b) = rayon::join(|| left.force().clone(), || right.force().clone());
+        assert_eq!(a, Ok(42));
+        assert_eq!(b, Ok(42));
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_zip_result_is_safe_in_async_tasks_after_initialization() {
+        let result = Arc::new(
+            ConcurrentLazy::new(|| 20)
+                .try_zip_with(ConcurrentLazy::new(|| 22), |a, b| a + b),
+        );
+        assert_eq!(result.force(), &Ok(42));
+
+        let left = Arc::clone(&result);
+        let right = Arc::clone(&result);
+        let a = tokio::spawn(async move { left.force().clone() });
+        let b = tokio::spawn(async move { right.force().clone() });
+        assert_eq!(a.await.unwrap(), Ok(42));
+        assert_eq!(b.await.unwrap(), Ok(42));
     }
 
     // =========================================================================
