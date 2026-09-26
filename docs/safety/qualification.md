@@ -31,7 +31,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-008 | open | requires GitHub branch/ruleset configuration |
 | SC-009 | remediation in branch | safety/08-ci-assurance: exact Rust 1.92.0 gate |
 | SC-010 | open | requires full semantic coverage/refinement expansion |
-| SC-011 | remediation in branch | safety/09-release-provenance: publish needs qualification + tests + Kani + Verus + evidence |
+| SC-011 | closed | release publish requires qualification + tests + Kani + Verus + build evidence; repository regression enforced |
 | SC-012 | remediation in branch | safety/10-supply-chain-pinning: immutable action SHAs + verified executable downloads |
 | SC-013 | remediation in branch | safety/22-assurance-matrix: AddressSanitizer + isolated bounded cargo-fuzz + pinned CodeQL, in addition to Miri/audit/deny |
 | SC-014 | remediation in branch | safety/22-assurance-matrix: Linux/macOS/Windows host matrix plus exact-MSRV x86_64/aarch64 compile matrix |
@@ -42,7 +42,7 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-019 | remediation in branch | safety/06-release-assurance |
 | SC-020 | remediation in branch | safety/06-release-assurance |
 | SC-021 | partial remediation | safety/12-governance: CODEOWNERS + maintainers + fail-closed governance; GitHub enforcement remains SC-008 |
-| SC-022 | remediation in branch | safety/09-release-provenance: explicit package include + cargo package surface checker |
+| SC-022 | closed | explicit package include + executable `cargo package --list` surface checker for both public crates |
 | SC-023 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-024 | remediation in branch | safety/07-proc-macro-hygiene |
 | SC-025 | remediation in branch | safety/06-release-assurance |
@@ -58,9 +58,9 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-035 | implemented | safety/24-safe-lazy-storage: Lazy→OnceCell, ConcurrentLazy→OnceLock, root/Cargo `forbid(unsafe_code)`, zero-unsafe checker, Kani/Verus semantic preservation |
 | SC-036 | remediation in branch | safety/15-dependency-remediation: patched root lock, maintained paste fork, profiler-only advisories isolated; RustSec remains fail-closed |
 | SC-037 | remediation in branch | safety/15-dependency-remediation: IAI profiler in standalone workspace with exact version; workflows use isolated manifest |
-| SC-038 | remediation in branch | safety/09-release-provenance: double-package hash comparison + SBOM + SHA256 + Sigstore attestation |
+| SC-038 | closed | double-package hash comparison + SBOM + SHA256 + Sigstore attestation are release evidence requirements |
 | SC-039 | remediation in branch | safety/08-ci-assurance: excluded verifier crates are explicit CI smoke targets |
-| SC-040 | remediation in branch | safety/09-release-provenance: machine-readable 40-item fail-closed release gate |
+| SC-040 | closed | machine-readable exact 40-item fail-closed release gate is a publish prerequisite |
 
 ## Concurrency / parallel / async rule
 
