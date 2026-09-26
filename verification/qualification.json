@@ -177,7 +177,7 @@
     },
     {
       "id": "SC-035",
-      "status": "partial",
+      "status": "implemented",
       "release_blocking": true
     },
     {
