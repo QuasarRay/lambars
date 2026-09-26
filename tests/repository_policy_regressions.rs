@@ -24,6 +24,8 @@ const ROOT_LOCK: &str = include_str!("../Cargo.lock");
 const IAI_MANIFEST: &str = include_str!("../benches/iai/Cargo.toml");
 const PANIC_POLICY: &str = include_str!("../docs/safety/panic-policy.md");
 const ASYNC_POOL_SOURCE: &str = include_str!("../src/effect/async_io/pool.rs");
+const ORDERED_UNIQUE_SET_SOURCE: &str =
+    include_str!("../src/persistent/ordered_unique_set.rs");
 const CODEOWNERS: &str = include_str!("../.github/CODEOWNERS");
 const GOVERNANCE: &str = include_str!("../GOVERNANCE.md");
 const MAINTAINERS: &str = include_str!("../MAINTAINERS.md");
@@ -279,5 +281,18 @@ fn sc014_architecture_matrix_covers_x86_64_and_aarch64() {
     assert!(
         SECURITY_ASSURANCE_WORKFLOW
             .contains("cargo +1.92.0 check --all-features --lib --target")
+    );
+}
+
+
+#[test]
+fn sc004_ordered_set_invariant_predicate_exists_in_release_profiles() {
+    assert!(
+        ORDERED_UNIQUE_SET_SOURCE.contains("fn is_strictly_sorted<T: Ord>(slice: &[T]) -> bool")
+    );
+    assert!(
+        !ORDERED_UNIQUE_SET_SOURCE.contains(
+            "#[cfg(debug_assertions)]\n#[inline]\nfn is_strictly_sorted"
+        )
     );
 }

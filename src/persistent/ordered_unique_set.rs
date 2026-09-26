@@ -1195,11 +1195,10 @@ fn intersection_slices<T: Clone + Ord>(left: &[T], right: &[T]) -> Vec<T> {
     result
 }
 
-/// Message constant for panic when `from_sorted_*` receives invalid input.
+/// Debug assertion message for violations of the internal normalized-state invariant.
 const SORTED_INVARIANT_PANIC_MESSAGE: &str =
-    "from_sorted_* requires strictly increasing elements (sorted + deduplicated)";
+    "OrderedUniqueSet internal state must be strictly increasing";
 
-#[cfg(debug_assertions)]
 #[inline]
 fn is_strictly_sorted<T: Ord>(slice: &[T]) -> bool {
     slice.windows(2).all(|window| window[0] < window[1])
