@@ -23,7 +23,7 @@ use axum::extract::{Query, State};
 use super::json_buffer::JsonResponse;
 use serde::{Deserialize, Serialize};
 
-use lambars::control::{ConcurrentLazy, Freer};
+use lambars::control::{ConcurrentLazy, Freer, InterpretError};
 use lambars::partial;
 use lambars::persistent::PersistentDeque;
 use lambars::typeclass::{Monoid, Product, Semigroup, Sum};
@@ -521,7 +521,9 @@ fn build_workflow(steps: &[WorkflowStepDto]) -> Option<Freer<TaskCommand, Task>>
 ///
 /// Note: This is not a pure function as it generates new `TaskId` and `Timestamp`.
 /// In a production system, these would be injected as dependencies.
-fn interpret_dry_run(workflow: Freer<TaskCommand, Task>) -> (Task, Vec<String>) {
+fn interpret_dry_run(
+    workflow: Freer<TaskCommand, Task>,
+) -> Result<(Task, Vec<String>), InterpretError> {
     let mut operations = Vec::new();
     let result = workflow.interpret(|command| {
         let op_description = match &command {
@@ -544,7 +546,7 @@ fn interpret_dry_run(workflow: Freer<TaskCommand, Task>) -> (Task, Vec<String>) 
         Box::new(dummy_task) as Box<dyn Any>
     });
 
-    (result, operations)
+    result.map(|task| (task, operations))
 }
 
 // =============================================================================
@@ -943,7 +945,9 @@ pub async fn freer_workflow(
     // Interpret workflow based on mode
     let (result_task, operations) = match request.execution_mode.as_str() {
         "dry_run" | "test" => {
-            let (task, ops) = interpret_dry_run(workflow);
+            let (task, ops) = interpret_dry_run(workflow).map_err(|error| {
+                ApiErrorResponse::internal_error(format!("Freer interpretation failed: {error}"))
+            })?;
             (Some(task), ops)
         }
         "production" => {
@@ -986,6 +990,9 @@ pub async fn freer_workflow(
                 }
             });
 
+            let result = result.map_err(|error| {
+                ApiErrorResponse::internal_error(format!("Freer interpretation failed: {error}"))
+            })?;
             (Some(result), operations)
         }
         _ => (None, Vec::new()),

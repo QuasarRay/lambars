@@ -26,7 +26,7 @@ An internal `panic!`, `expect`, `unwrap`, or `unreachable!` is acceptable only w
 | `Lazy::try_force`, `into_inner` | fallible | initializer panic is caught and returned as `LazyPoisonedError`; `Lazy` is `!Sync` |
 | `Lazy::force`, `force_mut` | partial convenience | explicitly documented panic paths remain SC-026 work |
 | `Freer::try_interpret` | fallible | intermediate/final type mismatches and handler/continuation unwinds return `InterpretError`; thread/Rayon/async decision model verified |
-| `Freer::interpret` | partial convenience | delegates to `try_interpret` and panics on returned error |
+| `Freer::interpret`, `try_interpret` | fallible | both return `InterpretError`; no interpreter panic wrapper remains |
 | `PureHandler` impossible-effect branches | internal invariant | must remain unreachable from safe typed construction and requires formal invariant evidence |
 
 ## Concurrency, parallelism, and async

@@ -37,17 +37,19 @@ where
 
 fn run_state_dsl<A: 'static>(program: Freer<StateCommand, A>, initial_state: i32) -> (A, i32) {
     let mut state = initial_state;
-    let result = program.interpret(|command| match command {
-        StateCommand::Get => Box::new(state),
-        StateCommand::Put(value) => {
-            state = value;
-            Box::new(())
-        }
-        StateCommand::Modify(f) => {
-            state = f(state);
-            Box::new(())
-        }
-    });
+    let result = program
+        .interpret(|command| match command {
+            StateCommand::Get => Box::new(state),
+            StateCommand::Put(value) => {
+                state = value;
+                Box::new(())
+            }
+            StateCommand::Modify(f) => {
+                state = f(state);
+                Box::new(())
+            }
+        })
+        .unwrap();
     (result, state)
 }
 
@@ -94,17 +96,19 @@ fn counter_get() -> Freer<CounterCommand, i32> {
 
 fn run_counter_dsl<A: 'static>(program: Freer<CounterCommand, A>, initial: i32) -> (A, i32) {
     let mut count = initial;
-    let result = program.interpret(|command| match command {
-        CounterCommand::Increment => {
-            count += 1;
-            Box::new(())
-        }
-        CounterCommand::Decrement => {
-            count -= 1;
-            Box::new(())
-        }
-        CounterCommand::GetCount => Box::new(count),
-    });
+    let result = program
+        .interpret(|command| match command {
+            CounterCommand::Increment => {
+                count += 1;
+                Box::new(())
+            }
+            CounterCommand::Decrement => {
+                count -= 1;
+                Box::new(())
+            }
+            CounterCommand::GetCount => Box::new(count),
+        })
+        .unwrap();
     (result, count)
 }
 

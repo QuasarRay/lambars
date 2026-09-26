@@ -428,7 +428,7 @@ impl<I, A> Freer<I, A> {
     /// use lambars::control::Freer;
     ///
     /// let freer: Freer<(), i32> = Freer::pure(42);
-    /// let result = freer.interpret(|_| Box::new(()));
+    /// let result = freer.interpret(|_| Box::new(())).unwrap();
     /// assert_eq!(result, 42);
     /// ```
     #[inline]
@@ -483,7 +483,7 @@ impl<I: 'static, A: 'static> Freer<I, A> {
     ///
     /// let freer: Freer<(), i32> = Freer::pure(21);
     /// let doubled = freer.map(|x| x * 2);
-    /// let result = doubled.interpret(|_| Box::new(()));
+    /// let result = doubled.interpret(|_| Box::new(())).unwrap();
     /// assert_eq!(result, 42);
     /// ```
     #[inline]
@@ -589,16 +589,15 @@ impl<I: 'static, A: 'static> Freer<I, A> {
     /// assert_eq!(result, 42);
     /// ```
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the final result type does not match the expected type `A`.
-    /// This indicates a bug in the DSL design or handler implementation.
-    pub fn interpret<Handler>(self, handler: Handler) -> A
+    /// Returns [`InterpretError`] for intermediate or final type mismatches,
+    /// handler unwinding, or continuation unwinding.
+    pub fn interpret<Handler>(self, handler: Handler) -> Result<A, InterpretError>
     where
         Handler: FnMut(I) -> Box<dyn Any>,
     {
         self.try_interpret(handler)
-            .expect("Final result type mismatch")
     }
 
     /// Interprets the Freer computation with Result-based error handling.
@@ -721,13 +720,15 @@ mod tests {
 
     fn run_state_program<A: 'static>(program: Freer<TestCommand, A>, initial: i32) -> (A, i32) {
         let mut state = initial;
-        let result = program.interpret(|command| match command {
-            TestCommand::Get => Box::new(state),
-            TestCommand::Put(value) => {
-                state = value;
-                Box::new(())
-            }
-        });
+        let result = program
+            .interpret(|command| match command {
+                TestCommand::Get => Box::new(state),
+                TestCommand::Put(value) => {
+                    state = value;
+                    Box::new(())
+                }
+            })
+            .unwrap();
         (result, state)
     }
 
@@ -825,7 +826,9 @@ mod tests {
 
     #[rstest]
     fn test_interpret_pure() {
-        let result: i32 = Freer::<(), i32>::pure(42).interpret(|()| Box::new(()));
+        let result: i32 = Freer::<(), i32>::pure(42)
+            .interpret(|()| Box::new(()))
+            .unwrap();
         assert_eq!(result, 42);
     }
 
@@ -834,7 +837,7 @@ mod tests {
         let freer = Freer::<(), i32>::pure(10)
             .flat_map(|x| Freer::pure(x + 5))
             .flat_map(|x| Freer::pure(x * 2));
-        assert_eq!(freer.interpret(|()| Box::new(())), 30);
+        assert_eq!(freer.interpret(|()| Box::new(())).unwrap(), 30);
     }
 
     #[rstest]
@@ -885,6 +888,15 @@ mod tests {
             }
         });
         assert_eq!(result, Ok(42));
+    }
+
+    #[rstest]
+    fn test_interpret_returns_typed_handler_panic() {
+        let program = test_get();
+        let result = program.interpret(|_| -> Box<dyn Any> {
+            panic!("handler panic");
+        });
+        assert_eq!(result, Err(InterpretError::HandlerPanicked));
     }
 
     #[rstest]
@@ -1000,7 +1012,7 @@ mod tests {
         for _ in 0..10_000 {
             freer = freer.flat_map(|x| Freer::pure(x + 1));
         }
-        assert_eq!(freer.interpret(|()| Box::new(())), 10_000);
+        assert_eq!(freer.interpret(|()| Box::new(())).unwrap(), 10_000);
     }
 
     #[rstest]
@@ -1119,7 +1131,7 @@ mod tests {
     #[rstest]
     fn test_monad_right_identity() {
         let result = Freer::<(), i32>::pure(42).flat_map(Freer::pure);
-        assert_eq!(result.interpret(|()| Box::new(())), 42);
+        assert_eq!(result.interpret(|()| Box::new(())).unwrap(), 42);
     }
 
     #[rstest]
@@ -1147,7 +1159,7 @@ mod tests {
     #[rstest]
     fn test_functor_identity() {
         let result = Freer::<(), i32>::pure(42).map(|x| x);
-        assert_eq!(result.interpret(|()| Box::new(())), 42);
+        assert_eq!(result.interpret(|()| Box::new(())).unwrap(), 42);
     }
 
     #[rstest]
@@ -1243,7 +1255,7 @@ mod tests {
             freer = freer.flat_map(|x| Freer::pure(x + 1));
         }
         // This should not cause heap allocation for Pure chains (fast-path)
-        assert_eq!(freer.interpret(|()| Box::new(())), expected_count);
+        assert_eq!(freer.interpret(|()| Box::new(())).unwrap(), expected_count);
     }
 
     // =========================================================================
@@ -1294,7 +1306,7 @@ mod proptests {
         #[test]
         fn prop_monad_right_identity(value in any::<i32>()) {
             let result = Freer::<(), i32>::pure(value).flat_map(Freer::pure);
-            prop_assert_eq!(result.interpret(|()| Box::new(())), value);
+            prop_assert_eq!(result.interpret(|()| Box::new(())).unwrap(), value);
         }
 
         #[test]
@@ -1318,7 +1330,7 @@ mod proptests {
         #[test]
         fn prop_functor_identity(value in any::<i32>()) {
             let result = Freer::<(), i32>::pure(value).map(|x| x);
-            prop_assert_eq!(result.interpret(|()| Box::new(())), value);
+            prop_assert_eq!(result.interpret(|()| Box::new(())).unwrap(), value);
         }
 
         #[test]
