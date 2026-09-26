@@ -543,7 +543,9 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
                     });
                     assert!(
                         !is_reentrant,
-                        "ConcurrentLazy::force re-entrant initialization detected:                          force() revisited the same ConcurrentLazy instance on the                          initializing thread"
+                        "ConcurrentLazy::force re-entrant initialization detected: \
+                         force() revisited the same ConcurrentLazy instance on the \
+                         initializing thread"
                     );
                     self.wait_on_initialization();
                     state = self.state.load(Ordering::Acquire);
@@ -568,7 +570,9 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             stack
                 .borrow()
                 .iter()
-                .any(|active| concurrent_lazy_pointer_reentry_matches(*active, initialization_identity))
+                .any(|active| {
+                    concurrent_lazy_pointer_reentry_matches(*active, initialization_identity)
+                })
         });
         if duplicate {
             {
@@ -1010,6 +1014,16 @@ impl<T, F: FnOnce() -> T> ConcurrentLazy<T, F> {
             .map_err(|_| ConcurrentLazyWaitError::AsyncWorkerFailed)?
     }
 
+    /// Forces initialization without propagating initializer panics.
+    ///
+    /// Returns the memoized value on success. If initialization panics, the
+    /// instance is poisoned and `Err(ConcurrentLazyPoisonedError)` is returned.
+    /// Same-thread re-entry is also returned as an error before any blocking wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConcurrentLazyPoisonedError` when the instance is poisoned,
+    /// initialization panics, or the same instance is re-entered by its initializer.
     pub fn try_force(&self) -> Result<&T, ConcurrentLazyPoisonedError> {
         let mut state = self.state.load(Ordering::Acquire);
 
@@ -1706,10 +1720,7 @@ mod tests {
         );
         assert!(before.elapsed() < std::time::Duration::from_millis(80));
         assert_eq!(handle.join().unwrap(), 42);
-        assert_eq!(
-            lazy.wait_for(std::time::Duration::from_secs(1)),
-            Ok(&42)
-        );
+        assert_eq!(lazy.wait_for(std::time::Duration::from_secs(1)), Ok(&42));
     }
 
     #[rstest]
