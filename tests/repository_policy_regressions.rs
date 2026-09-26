@@ -67,7 +67,6 @@ fn sc025_deprecation_version_does_not_claim_an_unreleased_version() {
     assert!(!ASYNC_IO.contains("deprecated since version 0.2.0"));
 }
 
-
 #[test]
 fn sc024_generated_docs_do_not_emit_literal_quote_placeholders() {
     assert!(!DERIVED_LENSES_SOURCE.contains("`#field_name`"));
@@ -75,7 +74,6 @@ fn sc024_generated_docs_do_not_emit_literal_quote_placeholders() {
     assert!(DERIVED_LENSES_SOURCE.contains("field_doc"));
     assert!(DERIVED_PRISMS_SOURCE.contains("variant_doc"));
 }
-
 
 #[test]
 fn sc006_sc034_concurrency_suite_uses_real_loom_models() {
@@ -121,10 +119,11 @@ fn sc039_excluded_verifier_crates_are_explicitly_smoke_checked() {
     assert!(CI_WORKFLOW.contains("working-directory: verification/verus"));
 }
 
-
 #[test]
 fn sc011_release_requires_source_tests_dependency_policy_and_both_formal_backends() {
-    assert!(RELEASE_WORKFLOW.contains("needs: [qualification, verify, kani, verus, build-evidence]"));
+    assert!(
+        RELEASE_WORKFLOW.contains("needs: [qualification, verify, kani, verus, build-evidence]")
+    );
     assert!(RELEASE_WORKFLOW.contains("cargo test --all-features --locked"));
     assert!(RELEASE_WORKFLOW.contains("cargo audit --deny warnings"));
     assert!(RELEASE_WORKFLOW.contains("Release Kani proofs"));
@@ -145,7 +144,10 @@ fn sc038_release_emits_reproducibility_hash_sbom_and_attestation_evidence() {
     assert!(RELEASE_WORKFLOW.contains("diff -u"));
     assert!(RELEASE_WORKFLOW.contains("cargo-cyclonedx --version 0.5.9"));
     assert!(RELEASE_WORKFLOW.contains("sha256sum"));
-    assert!(RELEASE_WORKFLOW.contains("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4"));
+    assert!(
+        RELEASE_WORKFLOW
+            .contains("uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4")
+    );
     assert!(RELEASE_WORKFLOW.contains("sbom-path: release-evidence/sbom.cdx.json"));
 }
 
@@ -157,7 +159,6 @@ fn sc040_release_is_fail_closed_on_complete_machine_readable_inventory() {
     }
     assert!(RELEASE_WORKFLOW.contains("check_qualification.py"));
 }
-
 
 #[test]
 fn sc012_sc037_ci_supply_chain_is_immutable_and_fail_closed() {
@@ -181,7 +182,6 @@ fn sc012_sc037_ci_supply_chain_is_immutable_and_fail_closed() {
     }
 }
 
-
 #[test]
 fn sc021_repository_has_explicit_safety_governance_and_ownership() {
     assert!(CODEOWNERS.contains("* @QuasarRay"));
@@ -190,9 +190,11 @@ fn sc021_repository_has_explicit_safety_governance_and_ownership() {
     assert!(MAINTAINERS.contains("Safety-critical responsibilities"));
     assert!(GOVERNANCE.contains("fail-closed"));
     assert!(GOVERNANCE.contains("SC-008"));
-    assert!(GOVERNANCE.contains("must not represent single-maintainer approval as independent assurance"));
+    assert!(
+        GOVERNANCE
+            .contains("must not represent single-maintainer approval as independent assurance")
+    );
 }
-
 
 #[test]
 fn sc036_root_qualification_graph_excludes_audited_advisories() {
@@ -226,7 +228,6 @@ fn sc037_profiler_dependencies_are_isolated_from_release_workspace() {
     assert!(IAI_MANIFEST.contains("iai-callgrind = \"=0.16.1\""));
 }
 
-
 #[test]
 fn sc026_panic_contract_is_explicit_and_hidden_pool_panics_do_not_return() {
     for required in [
@@ -240,7 +241,11 @@ fn sc026_panic_contract_is_explicit_and_hidden_pool_panics_do_not_return() {
         assert!(PANIC_POLICY.contains(required), "panic policy missing {required}");
     }
 
-    assert!(!ASYNC_POOL_SOURCE.contains("expect(\"semaphore should not be closed\")"));
-    assert!(!ASYNC_POOL_SOURCE.contains("expect(\"channel should not be closed\")"));
+    assert!(
+        !ASYNC_POOL_SOURCE.contains("expect(\"semaphore should not be closed\")")
+    );
+    assert!(
+        !ASYNC_POOL_SOURCE.contains("expect(\"channel should not be closed\")")
+    );
     assert!(ASYNC_POOL_SOURCE.contains("PoolError::PoolClosed"));
 }

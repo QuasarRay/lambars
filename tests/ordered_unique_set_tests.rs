@@ -692,7 +692,6 @@ fn test_law_sorted_iteration_large() {
     assert_eq!(sorted, expected);
 }
 
-
 #[test]
 fn sc004_from_sorted_vec_normalizes_unsorted_duplicates() {
     let set = lambars::persistent::OrderedUniqueSet::from_sorted_vec(vec![3, 1, 3, 2, 1]);

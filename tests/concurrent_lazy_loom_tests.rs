@@ -114,12 +114,7 @@ fn loom_ready_state_is_never_observed_before_value_publication() {
         let writer_value = Arc::clone(&value);
         let writer = thread::spawn(move || {
             if writer_state
-                .compare_exchange(
-                    EMPTY,
-                    COMPUTING,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+                .compare_exchange(EMPTY, COMPUTING, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 writer_value.store(7, Ordering::Relaxed);
@@ -129,12 +124,14 @@ fn loom_ready_state_is_never_observed_before_value_publication() {
 
         let reader_state = Arc::clone(&state);
         let reader_value = Arc::clone(&value);
-        let reader = thread::spawn(move || loop {
-            if reader_state.load(Ordering::Acquire) == READY {
-                assert_eq!(reader_value.load(Ordering::Relaxed), 7);
-                break;
+        let reader = thread::spawn(move || {
+            loop {
+                if reader_state.load(Ordering::Acquire) == READY {
+                    assert_eq!(reader_value.load(Ordering::Relaxed), 7);
+                    break;
+                }
+                thread::yield_now();
             }
-            thread::yield_now();
         });
 
         writer.join().unwrap();

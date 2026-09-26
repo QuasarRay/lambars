@@ -6,7 +6,8 @@
 
 use lambars::persistent::PersistentList;
 use lambars::typeclass::{
-    Applicative, Foldable, Functor, FunctorMut, Monad, Monoid, Semigroup, Sum, TypeConstructor,
+    Applicative, Foldable, Functor, FunctorMut, FunctorRef, Monad, Monoid, Semigroup, Sum,
+    TypeConstructor,
 };
 use rstest::rstest;
 
