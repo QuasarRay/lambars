@@ -659,6 +659,16 @@ mod lazy_totality_regressions {
 
     #[cfg(kani)]
     #[kani::proof]
+    fn sc026_try_force_mut_is_total_for_successful_initializer() {
+        let value: u8 = kani::any();
+        let mut lazy = Lazy::new(|| value);
+        let result = lazy.try_force_mut();
+        assert!(result.is_ok());
+        assert_eq!(result.map(|slot| *slot), Ok(value));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
     fn sc035_safe_lazy_storage_memoizes_symbolic_value() {
         let value: u8 = kani::any();
         let lazy = Lazy::new(|| value);
