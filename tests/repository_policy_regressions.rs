@@ -12,6 +12,8 @@ const ASYNC_IO: &str = include_str!("../src/effect/async_io/mod.rs");
 const DERIVED_LENSES_SOURCE: &str = include_str!("../lambars-derive/src/lenses.rs");
 const DERIVED_PRISMS_SOURCE: &str = include_str!("../lambars-derive/src/prisms.rs");
 const CI_WORKFLOW: &str = include_str!("../.github/workflows/ci.yml");
+const SECURITY_ASSURANCE_WORKFLOW: &str =
+    include_str!("../.github/workflows/security-assurance.yml");
 const KANI_WORKFLOW: &str = include_str!("../.github/workflows/kani-verification.yml");
 const VERUS_WORKFLOW: &str = include_str!("../.github/workflows/verus-verification.yml");
 const LOOM_SUITE: &str = include_str!("concurrent_lazy_loom_tests.rs");
@@ -173,6 +175,7 @@ fn sc012_sc037_ci_supply_chain_is_immutable_and_fail_closed() {
         include_str!("../.github/workflows/labeler.yml"),
         include_str!("../.github/workflows/profiling.yml"),
         include_str!("../.github/workflows/release.yml"),
+        include_str!("../.github/workflows/security-assurance.yml"),
         include_str!("../.github/workflows/verus-verification.yml"),
     ];
     for workflow in workflows {
@@ -248,4 +251,33 @@ fn sc026_panic_contract_is_explicit_and_hidden_pool_panics_do_not_return() {
         !ASYNC_POOL_SOURCE.contains("expect(\"channel should not be closed\")")
     );
     assert!(ASYNC_POOL_SOURCE.contains("PoolError::PoolClosed"));
+}
+
+
+#[test]
+fn sc013_security_assurance_has_sanitizer_fuzz_and_codeql() {
+    assert!(SECURITY_ASSURANCE_WORKFLOW.contains("AddressSanitizer"));
+    assert!(SECURITY_ASSURANCE_WORKFLOW.contains("cargo-fuzz --version 0.13.2 --locked"));
+    assert!(SECURITY_ASSURANCE_WORKFLOW.contains("fuzz run persistent_collections"));
+    assert!(SECURITY_ASSURANCE_WORKFLOW.contains("fuzz run lazy_totality"));
+    assert!(SECURITY_ASSURANCE_WORKFLOW.contains("fuzz run freer_totality"));
+    assert!(
+        SECURITY_ASSURANCE_WORKFLOW
+            .contains("github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2")
+    );
+    assert!(ROOT_MANIFEST.contains("\"fuzz\""));
+}
+
+#[test]
+fn sc014_architecture_matrix_covers_x86_64_and_aarch64() {
+    assert!(
+        SECURITY_ASSURANCE_WORKFLOW.contains("x86_64-unknown-linux-gnu")
+    );
+    assert!(
+        SECURITY_ASSURANCE_WORKFLOW.contains("aarch64-unknown-linux-gnu")
+    );
+    assert!(
+        SECURITY_ASSURANCE_WORKFLOW
+            .contains("cargo +1.92.0 check --all-features --lib --target")
+    );
 }

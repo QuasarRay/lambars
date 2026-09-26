@@ -33,8 +33,8 @@ For repository metadata and GitHub configuration (for example branch protection,
 | SC-010 | open | requires full semantic coverage/refinement expansion |
 | SC-011 | remediation in branch | safety/09-release-provenance: publish needs qualification + tests + Kani + Verus + evidence |
 | SC-012 | remediation in branch | safety/10-supply-chain-pinning: immutable action SHAs + verified executable downloads |
-| SC-013 | partial remediation | safety/08-ci-assurance: Miri + cargo-audit + cargo-deny; sanitizer/fuzz/CodeQL still open |
-| SC-014 | partial remediation | safety/08-ci-assurance: Linux/macOS/Windows host matrix; architecture matrix still open |
+| SC-013 | remediation in branch | safety/22-assurance-matrix: AddressSanitizer + isolated bounded cargo-fuzz + pinned CodeQL, in addition to Miri/audit/deny |
+| SC-014 | remediation in branch | safety/22-assurance-matrix: Linux/macOS/Windows host matrix plus exact-MSRV x86_64/aarch64 compile matrix |
 | SC-015 | remediation in branch | safety/08-ci-assurance: 80% line floor + gating Codecov upload |
 | SC-016 | remediation in branch | safety/06-release-assurance |
 | SC-017 | remediation in branch | safety/06-release-assurance |

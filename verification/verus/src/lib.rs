@@ -64,7 +64,13 @@ pub proof fn sc004_normalize_pair_is_strict_and_unique(a: int, b: int)
     } else {
         assert(a == b);
         assert(normalize_pair(a, b) == seq![a]);
+        assert(seq![a].len() == 1);
+        assert(seq![a][0] == a);
+        assert(exists|i: int| 0 <= i < seq![a].len() && seq![a][i] == a) by {
+            assert(0 <= 0 < seq![a].len());
+        }
         assert(seq![a].contains(a));
+        assert(seq![a].contains(b));
     }
 }
 
