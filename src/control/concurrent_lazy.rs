@@ -193,7 +193,7 @@ pub const fn concurrent_lazy_try_force_decision(
 /// Always removes this instance from `CONCURRENT_LAZY_INIT_STACK` regardless of outcome.
 struct InitializationDropGuard<'a, T, F> {
     concurrent_lazy: &'a ConcurrentLazy<T, F>,
-    initialization_identity: usize,
+    initialization_identity: *const (),
     completed: bool,
 }
 
