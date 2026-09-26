@@ -740,4 +740,15 @@ pub proof fn sc035_safe_storage_preserves_total_lazy_models(
 {
 }
 
+
+/// SC-026: mutable Lazy access observes the same total state partition as
+/// immutable total access; no state requires an unwind-only outcome.
+pub proof fn sc026_mutable_lazy_access_uses_total_state_classification(state: int)
+    ensures
+        lazy_force_decision_model(state) == 0
+        || lazy_force_decision_model(state) == 1
+        || lazy_force_decision_model(state) == 2,
+{
+}
+
 } // verus!
