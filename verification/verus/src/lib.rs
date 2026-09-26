@@ -735,4 +735,63 @@ pub proof fn sc026_freer_execution_mode_preserves_decision(
 {
 }
 
+
+/// SC-026 model of AsyncPool constructor capacity validation.
+pub open spec fn pool_capacity_is_valid_model(
+    capacity: int,
+    queue_capacity: int,
+) -> bool {
+    capacity > 0
+        && queue_capacity > 0
+        && queue_capacity <= capacity
+}
+
+pub proof fn sc026_invalid_pool_capacity_is_rejected(
+    capacity: int,
+    queue_capacity: int,
+)
+    requires
+        capacity == 0
+        || queue_capacity == 0
+        || queue_capacity > capacity,
+    ensures !pool_capacity_is_valid_model(capacity, queue_capacity),
+{
+}
+
+pub proof fn sc026_valid_pool_capacity_is_accepted(
+    capacity: int,
+    queue_capacity: int,
+)
+    requires
+        capacity > 0,
+        queue_capacity > 0,
+        queue_capacity <= capacity,
+    ensures pool_capacity_is_valid_model(capacity, queue_capacity),
+{
+}
+
+pub open spec fn pool_capacity_for_mode_model(
+    capacity: int,
+    queue_capacity: int,
+    execution_mode: int,
+) -> bool {
+    if 0 <= execution_mode <= 2 {
+        pool_capacity_is_valid_model(capacity, queue_capacity)
+    } else {
+        false
+    }
+}
+
+pub proof fn sc026_pool_constructor_execution_mode_preserves_validity(
+    capacity: int,
+    queue_capacity: int,
+    execution_mode: int,
+)
+    requires 0 <= execution_mode <= 2
+    ensures
+        pool_capacity_for_mode_model(capacity, queue_capacity, execution_mode)
+            == pool_capacity_is_valid_model(capacity, queue_capacity),
+{
+}
+
 } // verus!

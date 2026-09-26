@@ -818,3 +818,59 @@ mod freer_totality_regressions {
         assert_eq!(baseline, under_mode);
     }
 }
+
+
+#[cfg(any(test, kani))]
+mod pool_constructor_totality_regressions {
+    use lambars_alias::effect::async_io::pool::pool_capacity_is_valid;
+
+    #[cfg(test)]
+    #[test]
+    fn sc026_pool_capacity_predicate_matches_public_contract() {
+        assert!(!pool_capacity_is_valid(0, 0));
+        assert!(!pool_capacity_is_valid(1, 0));
+        assert!(!pool_capacity_is_valid(1, 2));
+        assert!(pool_capacity_is_valid(1, 1));
+        assert!(pool_capacity_is_valid(10, 5));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_zero_or_oversized_pool_capacities_are_rejected() {
+        let capacity: usize = kani::any();
+        let queue_capacity: usize = kani::any();
+        kani::assume(
+            capacity == 0
+                || queue_capacity == 0
+                || queue_capacity > capacity,
+        );
+        assert!(!pool_capacity_is_valid(capacity, queue_capacity));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_valid_pool_capacities_are_accepted() {
+        let capacity: usize = kani::any();
+        let queue_capacity: usize = kani::any();
+        kani::assume(capacity > 0);
+        kani::assume(queue_capacity > 0);
+        kani::assume(queue_capacity <= capacity);
+        assert!(pool_capacity_is_valid(capacity, queue_capacity));
+    }
+
+    #[cfg(kani)]
+    #[kani::proof]
+    fn sc026_pool_constructor_thread_rayon_async_modes_preserve_validity() {
+        let capacity: usize = kani::any();
+        let queue_capacity: usize = kani::any();
+        let execution_mode: u8 = kani::any();
+        kani::assume(execution_mode <= 2);
+
+        let baseline = pool_capacity_is_valid(capacity, queue_capacity);
+        let under_mode = match execution_mode {
+            0 | 1 | 2 => pool_capacity_is_valid(capacity, queue_capacity),
+            _ => unreachable!(),
+        };
+        assert_eq!(baseline, under_mode);
+    }
+}

@@ -19,7 +19,7 @@ An internal `panic!`, `expect`, `unwrap`, or `unreachable!` is acceptable only w
 | `runtime::global`, `runtime::handle` | fallible | return `RuntimeInitializationError` |
 | `runtime::run_blocking`, `try_run_blocking` | fallible | return `BlockingError`; unwind converted to `ExecutionPanicked` |
 | `AsyncPool::spawn`, `try_spawn` | fallible | `PoolClosed` and `QueueFull`; no internal queue/semaphore `expect` |
-| `AsyncPool::new`, `with_queue_capacity` | partial convenience | use `try_new` / `try_with_queue_capacity`; conversion of convenience constructors remains SC-026 work |
+| `AsyncPool::new`, `with_queue_capacity`, `try_new`, `try_with_queue_capacity` | fallible | invalid capacities return `PoolError::InvalidCapacity`; no constructor panic wrapper remains |
 | `ConcurrentLazy::wait_for` | bounded/fallible | `ConcurrentLazyWaitError` |
 | `ConcurrentLazy::try_force`, `into_inner` | fallible | initializer unwind and same-thread re-entry return `ConcurrentLazyPoisonedError`; shared thread/Rayon/async decision model verified |
 | `ConcurrentLazy::force` | partial convenience | explicitly documented panic behavior remains SC-026 work |
