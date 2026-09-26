@@ -1,43 +1,44 @@
 #!/usr/bin/env python3
-"""Fail if unsafe code escapes the explicitly audited lazy implementation boundary."""
+"""Fail if runtime source contains unsafe Rust or attempts to weaken the unsafe lint."""
 
 from __future__ import annotations
+
 import pathlib
 import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
-ALLOWED = {
-    pathlib.Path("src/control/lazy.rs"),
-    pathlib.Path("src/control/concurrent_lazy.rs"),
-}
 PATTERNS = [
     re.compile(r"#!\s*\[\s*allow\s*\(\s*unsafe_code\s*\)\s*\]"),
     re.compile(r"\bunsafe\s*\{"),
     re.compile(r"\bunsafe\s+impl\b"),
     re.compile(r"\bunsafe\s+fn\b"),
+    re.compile(r"\bunsafe\s+extern\b"),
 ]
 
 violations: list[str] = []
-observed_allowed: set[pathlib.Path] = set()
-for path in SRC.rglob("*.rs"):
+for path in sorted(SRC.rglob("*.rs")):
     rel = path.relative_to(ROOT)
     text = path.read_text(encoding="utf-8")
-    if any(pattern.search(text) for pattern in PATTERNS):
-        if rel not in ALLOWED:
-            violations.append(str(rel))
-        else:
-            observed_allowed.add(rel)
+    for lineno, line in enumerate(text.splitlines(), 1):
+        # Documentation/comments may discuss unsafe; enforce Rust syntax only.
+        code = line.split("//", 1)[0]
+        if any(pattern.search(code) for pattern in PATTERNS):
+            violations.append(f"{rel}:{lineno}: {line.strip()}")
 
-missing = ALLOWED - observed_allowed
-if missing:
-    violations.append("audited unsafe boundary unexpectedly disappeared/moved: " + ", ".join(map(str, sorted(missing))))
+lib_text = (SRC / "lib.rs").read_text(encoding="utf-8")
+if "#![forbid(unsafe_code)]" not in lib_text:
+    violations.append("src/lib.rs: missing #![forbid(unsafe_code)]")
+
+cargo_text = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
+if 'unsafe_code = "forbid"' not in cargo_text:
+    violations.append('Cargo.toml: workspace unsafe_code lint is not "forbid"')
 
 if violations:
-    print("unsafe-boundary policy violation:")
+    print("unsafe-code policy violation:")
     for violation in violations:
         print(f"  - {violation}")
     sys.exit(1)
 
-print("unsafe code remains confined to the audited lazy/concurrent-lazy boundary")
+print("runtime unsafe-code policy: zero unsafe syntax; crate and Cargo lints are forbid")
