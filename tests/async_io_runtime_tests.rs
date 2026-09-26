@@ -50,8 +50,7 @@ fn test_global_runtime_from_multiple_threads() {
         .map(|_| {
             thread::spawn(|| {
                 let runtime = global().unwrap();
-                // Return raw pointer as usize for comparison
-                runtime as *const _ as usize
+                std::ptr::from_ref(runtime).addr()
             })
         })
         .collect();
@@ -79,7 +78,7 @@ fn test_handle_from_outside_runtime() {
 
     // Verify the handle works by spawning a task
     let result = obtained_handle.block_on(async { 42 });
-    assert_eq!(result, Ok(42));
+    assert_eq!(result, 42);
 }
 
 /// Tests that handle() returns current runtime's handle when inside runtime.
@@ -90,7 +89,7 @@ async fn test_handle_inside_runtime() {
 
     // Verify the handle works by spawning a task
     let result: i32 = obtained_handle.spawn(async { 42 }).await.unwrap();
-    assert_eq!(result, Ok(42));
+    assert_eq!(result, 42);
 }
 
 /// Tests that handle() caching is thread-local (each thread gets its own cached handle).
@@ -200,8 +199,8 @@ fn test_try_run_blocking_multiple_calls() {
     let result3 = try_run_blocking(async { 3 });
 
     assert_eq!(result1, Ok(1));
-    assert_eq!(result2, Ok(2));
-    assert_eq!(result3, Ok(3));
+    assert_eq!(result2, 2);
+    assert_eq!(result3, 3);
 }
 
 /// Tests that try_run_blocking preserves result types.
